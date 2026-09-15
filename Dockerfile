@@ -16,7 +16,10 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && apt-get purge -y gstreamer1.0-plugins-bad libgstreamer-plugins-bad1.0-0 \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install --global --prefix /usr npm@12.0.2 && rm -rf /root/.npm
+RUN npm install --global --prefix /usr npm@12.0.2 \
+    && npm install --prefix /usr/lib/node_modules/npm --ignore-scripts --omit=dev --no-package-lock \
+        brace-expansion@5.0.9 ip-address@10.3.1 tar@7.5.21 \
+    && rm -rf /root/.npm
 COPY --from=dotnet-runtime /usr/share/dotnet /usr/share/dotnet
 ENV DOTNET_ROOT=/usr/share/dotnet PATH="/usr/share/dotnet:${PATH}" \
     ASPNETCORE_URLS=http://0.0.0.0:8080 Quality__Store=Postgres \
