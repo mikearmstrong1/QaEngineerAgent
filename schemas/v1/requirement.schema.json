@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/requirement.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "reference": {
+      "$ref": "https://quality.local/schemas/v1/requirement-reference.schema.json"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "actors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "resourceId": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              },
+              "locator": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "resourceId",
+              "revision",
+              "field",
+              "locator"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "description"
+        ]
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sourceRevision": {
+      "type": "string"
+    },
+    "isStub": {
+      "type": "boolean"
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    }
+  },
+  "required": [
+    "id",
+    "reference",
+    "title",
+    "description",
+    "actors",
+    "preconditions",
+    "acceptanceCriteria",
+    "risks",
+    "sourceRevision",
+    "isStub",
+    "schemaVersion"
+  ]
+}

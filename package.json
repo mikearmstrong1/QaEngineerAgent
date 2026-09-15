@@ -1,0 +1,18 @@
+{
+  "name": "quality-system",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "playwright"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @quality/playwright",
+    "test": "npm test --workspace @quality/playwright",
+    "test:smoke": "npm run test:smoke --workspace @quality/playwright",
+    "test:execution": "node --test scripts/execution.test.cjs",
+    "test:regressions": "playwright test --config playwright/regressions.config.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

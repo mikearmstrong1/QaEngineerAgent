@@ -1,0 +1,270 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Npgsql;
+using Quality.Api;
+using Quality.Domain;
+using Quality.Orchestrator;
+using Quality.Persistence;
+
+var mode = args.FirstOrDefault() ?? "api";
+if (mode is "help" or "--help")
+{
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 | get --id <job-id> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    return 0;
+}
+if (mode is not ("api" or "worker" or "run" or "get" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+{
+    Console.Error.WriteLine("Unknown mode; use --help");
+    return 2;
+}
+try
+{
+    if (mode == "worker")
+    {
+        if (args.Length > 1) throw new ArgumentException("worker takes no arguments");
+        var workerBuilder = Host.CreateApplicationBuilder();
+        ConfigureServices(workerBuilder.Services, workerBuilder.Configuration, true);
+        using var host = workerBuilder.Build();
+        await host.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+        await host.RunAsync();
+        return 0;
+    }
+    if (mode == "api" && args.Length > 1) throw new ArgumentException("api takes no arguments; use environment configuration");
+    var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Services.ConfigureHttpJsonOptions(o => {
+        o.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        o.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+    });
+    ConfigureServices(builder.Services, builder.Configuration,
+        mode == "api" && builder.Configuration.GetValue<bool>("Quality:RunWorker"));
+    await using var app = builder.Build();
+    await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+    var jobs = app.Services.GetRequiredService<JobService>();
+    if (mode is "promote-regression" or "classify-failure")
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var service = app.Services.GetRequiredService<RegressionPromotion>();
+        if (mode == "classify-failure")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--run", "--classification", "--reason"]);
+            var run = await service.ClassifyFailureAsync(parsed["--run"], parsed["--classification"], parsed["--reason"], timeout.Token);
+            Console.WriteLine(JsonSerializer.Serialize(run, ContractJson.Options));
+            return 0;
+        }
+        var options = ParseOptions(args.Skip(1).ToArray(), ["--job", "--run", "--sha256"]);
+        var job = await jobs.GetAsync(options["--job"], timeout.Token) ?? throw new ArgumentException("Job not found");
+        var patch = await service.ProposeAsync(job, options["--run"], options["--sha256"], timeout.Token);
+        Console.WriteLine(JsonSerializer.Serialize(new { status = "NeedsReview", patch }, ContractJson.Options));
+        return 0;
+    }
+    if (mode is "init-artifacts" or "publish-artifacts" or "associate-failure")
+    {
+        if (app.Services.GetService<MinioArtifactStore>() is null) throw new ArgumentException("Configure Quality__Artifacts__Mode=MinIO first");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        if (mode == "init-artifacts")
+        {
+            if (args.Length != 1) throw new ArgumentException("init-artifacts takes no arguments");
+            await app.Services.GetRequiredService<MinioArtifactStore>().InitializeAsync(timeout.Token);
+            var settings = app.Services.GetRequiredService<MinioOptions>();
+            Console.WriteLine(JsonSerializer.Serialize(new { bucket = settings.Bucket, retentionDays = settings.RetentionDays, prefix = MinioArtifactStore.Prefix }, ContractJson.Options));
+            return 0;
+        }
+        var publisher = app.Services.GetRequiredService<RunArtifactPublisher>();
+        if (mode == "publish-artifacts")
+        {
+            var options = ParseOptions(args.Skip(1).ToArray(), ["--run"]);
+            var run = await publisher.PublishAsync(options["--run"], timeout.Token);
+            Console.WriteLine(JsonSerializer.Serialize(run, ContractJson.Options));
+            return run.ArtifactUploadStatus == "Uploaded" ? 0 : 1;
+        }
+        var parsed = ParseOptions(args.Skip(1).ToArray(), ["--file"]);
+        if (new FileInfo(parsed["--file"]).Length > 1024 * 1024) throw new ArgumentException("Analysis is too large");
+        var jsonOptions = new JsonSerializerOptions(ContractJson.Options) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+        var analysis = JsonSerializer.Deserialize<FailureAnalysis>(await File.ReadAllTextAsync(parsed["--file"], timeout.Token), jsonOptions)
+            ?? throw new ArgumentException("Failure analysis is required");
+        Console.WriteLine(JsonSerializer.Serialize(await publisher.AssociateFailureAsync(analysis, timeout.Token), ContractJson.Options));
+        return 0;
+    }
+    if (mode is "prepare-execution" or "execute" or "get-run")
+    {
+        if (mode == "get-run")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--id"]);
+            var run = await app.Services.GetRequiredService<ITestRunStore>().GetAsync(parsed["--id"], CancellationToken.None);
+            if (run is null) { Console.Error.WriteLine("Run not found"); return 3; }
+            Console.WriteLine(JsonSerializer.Serialize(run, ContractJson.Options));
+            return 0;
+        }
+        var options = ParseOptions(args.Skip(1).ToArray(), mode == "execute" ? ["--job", "--manifest", "--sha256"] : ["--job", "--target"]);
+        var job = await jobs.GetAsync(options["--job"], CancellationToken.None);
+        if (job?.Status != JobStatus.Completed || job.TestPlan is null) throw new ArgumentException("A completed planning job is required");
+        if (mode == "prepare-execution")
+        {
+            // Human supplies selectors and concrete actions, then reviews the completed manifest.
+            var draft = new ExecutionManifest(job.TestPlan.Id, ExecutionManifest.HashPlan(job.TestPlan), options["--target"],
+                job.TestPlan.TestCases.Select(test => new ExecutionTest(test.Id, [])).ToArray());
+            Console.WriteLine(JsonSerializer.Serialize(draft, ContractJson.Options));
+            return 0;
+        }
+        var manifestPath = options["--manifest"];
+        if (new FileInfo(manifestPath).Length > 1024 * 1024) throw new ArgumentException("Manifest is too large");
+        var bytes = await File.ReadAllBytesAsync(manifestPath);
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+        Console.CancelKeyPress += cancel;
+        try
+        {
+            var run = await app.Services.GetRequiredService<IReviewedTestExecutor>()
+                .ExecuteReviewedAsync(job.TestPlan, bytes, options["--sha256"], cancellation.Token);
+            if (app.Services.GetService<MinioArtifactStore>() is not null && !cancellation.IsCancellationRequested)
+                run = await app.Services.GetRequiredService<RunArtifactPublisher>().PublishAsync(run.Id, cancellation.Token);
+            Console.WriteLine(JsonSerializer.Serialize(run, ContractJson.Options));
+            return run.Status == "Passed" && run.ArtifactUploadStatus != "Failed" ? 0 : 1;
+        }
+        finally { Console.CancelKeyPress -= cancel; }
+    }
+    if (mode is "run" or "get")
+    {
+        var options = ParseOptions(args.Skip(1).ToArray(), mode == "run" ? ["--source", "--reference"] : ["--id"]);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        QualityJob? result;
+        if (mode == "get") result = await jobs.GetAsync(options["--id"], timeout.Token);
+        else
+        {
+            var submitted = await jobs.SubmitAsync(new(new(options["--source"], options["--reference"])), timeout.Token);
+            result = await jobs.ProcessNextAsync(submitted.Id, timeout.Token);
+            // Another worker may claim this job between submission and one-shot execution.
+            while (result is null || !result.IsTerminal)
+            {
+                await Task.Delay(100, timeout.Token);
+                result = await jobs.GetAsync(submitted.Id, timeout.Token);
+            }
+        }
+        if (result is null) { Console.Error.WriteLine("Job not found"); return 3; }
+        Console.WriteLine(JsonSerializer.Serialize(result, ContractJson.Options));
+        return result.Status == JobStatus.Failed ? 1 : 0;
+    }
+    app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-system" }));
+    app.MapGet("/ready", async (IJobStore store, CancellationToken ct) =>
+    {
+        try { await store.GetAsync("00000000000000000000000000000000", ct); return Results.Ok(new { status = "ready" }); }
+        catch { return Results.StatusCode(503); }
+    });
+    app.MapPost("/jobs", async (JobRequest request, CancellationToken ct) =>
+    {
+        try { var job = await jobs.SubmitAsync(request, ct); return Results.Accepted($"/jobs/{job.Id}", job); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["reference"] = [ex.Message] }); }
+    });
+    app.MapGet("/jobs/{id}", async (string id, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        var job = await jobs.GetAsync(id, ct);
+        return job is null ? Results.NotFound() : Results.Ok(job);
+    });
+    app.MapGet("/", () => Results.Content("""
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Quality System</title></head>
+        <body><main><h1>Engineering Quality System</h1><p>Portable requirement-to-test planning.</p>
+        <p>Completed jobs contain plans; inspect isStub and coverageGaps before use. Execute reviewed manifests separately to obtain test results.</p>
+        <a href="/health">Service health</a></main></body></html>
+        """, "text/html"));
+    await app.RunAsync();
+    return 0;
+}
+catch (ArgumentException ex) { Console.Error.WriteLine(ex.Message); return 2; }
+catch (OperationCanceledException) { Console.Error.WriteLine("Operation timed out; inspect persisted job state"); return 1; }
+catch (Exception ex) { Console.Error.WriteLine($"Startup or operation failed ({ex.GetType().Name})"); return 1; }
+
+static Dictionary<string, string> ParseOptions(string[] values, string[] allowed)
+{
+    var parsed = new Dictionary<string, string>();
+    if (values.Length % 2 != 0) throw new ArgumentException("Every option requires a value");
+    for (var i = 0; i < values.Length; i += 2)
+        if (!allowed.Contains(values[i]) || !parsed.TryAdd(values[i], values[i + 1]))
+            throw new ArgumentException($"Unknown or duplicate option: {values[i]}");
+    if (allowed.Any(a => !parsed.ContainsKey(a))) throw new ArgumentException($"Required options: {string.Join(", ", allowed)}");
+    return parsed;
+}
+
+static void ConfigureServices(IServiceCollection services, IConfiguration configuration, bool runWorker)
+{
+    services.AddSingleton(TimeProvider.System);
+    var storeKind = configuration["Quality:Store"] ?? "File";
+    if (storeKind.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+    {
+        var connection = configuration.GetConnectionString("Quality")
+            ?? throw new ArgumentException("ConnectionStrings__Quality is required for PostgreSQL");
+        services.AddSingleton(_ => NpgsqlDataSource.Create(connection));
+        services.AddSingleton<IJobStore, PostgresJobStore>();
+    }
+    else if (storeKind.Equals("File", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<IJobStore>(sp => new FileJobStore(configuration["Quality:DataDirectory"] ?? "./data/jobs", sp.GetRequiredService<TimeProvider>()));
+    else throw new ArgumentException("Quality__Store must be File or Postgres");
+    var sourceKind = configuration["Quality:Requirements:Mode"] ?? "Stub";
+    if (sourceKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<IRequirementSource, StubRequirementSource>();
+    else if (sourceKind.Equals("Remote", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Requirements");
+        services.AddSingleton(new RequirementSourceOptions(
+            section["Jira:BaseUrl"], section["Jira:Email"], section["Jira:Token"], section["Jira:AcceptanceField"],
+            section["Coda:Token"], section["Coda:TitleColumn"], section["Coda:DescriptionColumn"], section["Coda:AcceptanceColumn"]));
+        services.AddHttpClient<IRequirementSource, RemoteRequirementSource>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    }
+    else throw new ArgumentException("Quality__Requirements__Mode must be Stub or Remote");
+    var planningKind = configuration["Quality:Planning:Mode"] ?? "Stub";
+    if (planningKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<ILlmProvider, StubLlmProvider>();
+    else if (planningKind.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Planning");
+        var options = new PlanningOptions(section["ApiKey"] ?? configuration["OPENAI_API_KEY"] ?? "",
+            section["Model"] ?? "", section.GetValue("MaxAttempts", 3),
+            section.GetValue("AttemptTimeoutSeconds", 20), section.GetValue("TotalTimeoutSeconds", 75),
+            section.GetValue("MaxOutputTokens", 8192));
+        options.Validate();
+        services.AddSingleton(options);
+        services.AddSingleton(new PlanningPrompt(section["AssetDirectory"] ?? AppContext.BaseDirectory));
+        services.AddHttpClient<ILlmProvider, OpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    }
+    else throw new ArgumentException("Quality__Planning__Mode must be Stub or OpenAI");
+    var artifactMode = configuration["Quality:Artifacts:Mode"] ?? "Local";
+    if (artifactMode.Equals("Local", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<IArtifactStore, StubArtifactStore>();
+    else if (artifactMode.Equals("MinIO", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Artifacts");
+        var settings = new MinioOptions(section["Endpoint"] ?? "", section["AccessKey"] ?? "", section["SecretKey"] ?? "",
+            section["Bucket"] ?? "quality-artifacts", section.GetValue("RetentionDays", 30),
+            section.GetValue<long>("MaxArtifactBytes", 134217728), section.GetValue("TimeoutSeconds", 60));
+        settings.Validate();
+        services.AddSingleton(settings);
+        services.AddSingleton<Amazon.S3.IAmazonS3>(_ => MinioArtifactStore.CreateClient(settings));
+        services.AddSingleton<MinioArtifactStore>();
+        services.AddSingleton<IArtifactStore>(sp => sp.GetRequiredService<MinioArtifactStore>());
+    }
+    else throw new ArgumentException("Quality__Artifacts__Mode must be Local or MinIO");
+    services.AddSingleton<RunArtifactPublisher>();
+    var proposalWorkspace = Path.GetFullPath(configuration["Quality:SourceControl:Workspace"] ?? Directory.GetCurrentDirectory());
+    services.AddSingleton(new SourceControlOptions(proposalWorkspace,
+        configuration["Quality:SourceControl:ProposalDirectory"] ?? Path.Combine(proposalWorkspace, "data/proposals")));
+    services.AddSingleton<ISourceControl, GitPatchSourceControl>();
+    services.AddSingleton<RegressionPromotion>();
+    var execution = configuration.GetSection("Quality:Execution");
+    var workspace = Path.GetFullPath(execution["Workspace"] ?? Directory.GetCurrentDirectory());
+    services.AddSingleton<ITestRunStore>(new FileTestRunStore(execution["RunDirectory"] ?? Path.Combine(workspace, "data/executions")));
+    services.AddSingleton(new ExecutionOptions(workspace,
+        (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        execution["NodeExecutable"] ?? "node"));
+    services.AddSingleton<PlaywrightTestExecutor>();
+    services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
+    services.AddSingleton<IReviewedTestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
+    services.AddSingleton<JobService>();
+    if (runWorker)
+        services.AddHostedService<JobWorker>();
+}
+
+public partial class Program { }

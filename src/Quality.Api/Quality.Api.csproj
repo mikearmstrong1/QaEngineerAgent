@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk.Web"><ItemGroup><ProjectReference Include="../Quality.Domain/Quality.Domain.csproj" /><ProjectReference Include="../Quality.Orchestrator/Quality.Orchestrator.csproj" /><ProjectReference Include="../Quality.Persistence/Quality.Persistence.csproj" /></ItemGroup><ItemGroup>
+    <Content Include="../../prompts/plan/v2/*" Link="prompts/plan/v2/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../schemas/v1/planning-output.schema.json" Link="schemas/v1/planning-output.schema.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+</ItemGroup></Project>

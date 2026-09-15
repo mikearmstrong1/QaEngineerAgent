@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../Quality.Domain/Quality.Domain.csproj" /></ItemGroup><ItemGroup>
+  <PackageReference Include="AWSSDK.S3" Version="4.0.103.2" />
+  <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
+</ItemGroup></Project>

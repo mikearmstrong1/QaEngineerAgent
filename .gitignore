@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+node_modules/
+**/test-results/
+**/playwright-report/
+data/
+.env
+*.trx
+.DS_Store

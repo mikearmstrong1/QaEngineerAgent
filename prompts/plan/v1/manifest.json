@@ -1,0 +1,6 @@
+{
+  "version": "plan/v1",
+  "status": "stub-contract-only",
+  "outputSchema": "schemas/v1/test-plan.schema.json",
+  "systemPrompt": "system.md"
+}

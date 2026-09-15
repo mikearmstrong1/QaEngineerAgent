@@ -1,0 +1,122 @@
+{
+  "id": "d978170e908b43c6ad62b4a3ab109d3d",
+  "reference": {
+    "source": "jira",
+    "id": "AUTH-1427"
+  },
+  "status": "Completed",
+  "createdAt": "2026-09-13T21:22:37.191447+00:00",
+  "updatedAt": "2026-09-13T21:22:37.382466+00:00",
+  "revision": 4,
+  "requirement": {
+    "id": "jira:AUTH-1427",
+    "reference": {
+      "source": "jira",
+      "id": "AUTH-1427"
+    },
+    "title": "Stub requirement for AUTH-1427",
+    "description": "Synthetic requirement. No external provider was contacted.",
+    "actors": [
+      "Test user"
+    ],
+    "preconditions": [
+      "A dedicated test environment is available"
+    ],
+    "acceptanceCriteria": [
+      {
+        "id": "AC-1",
+        "description": "The requested feature reports a successful result"
+      }
+    ],
+    "risks": [
+      "Actual acceptance criteria have not been imported"
+    ],
+    "sourceRevision": "stub-v1",
+    "isStub": true,
+    "schemaVersion": "1.0"
+  },
+  "testPlan": {
+    "id": "6c0f9beb0822404099150f3ec0ef394f",
+    "requirementId": "jira:AUTH-1427",
+    "summary": "Synthetic structured plan; review before generating executable tests.",
+    "testCases": [
+      {
+        "id": "TC-1",
+        "requirementId": "jira:AUTH-1427",
+        "title": "Feature happy path",
+        "category": "HappyPath",
+        "priority": "P1",
+        "acceptanceCriterionIds": [
+          "AC-1"
+        ],
+        "steps": [
+          {
+            "action": "Perform the documented feature action",
+            "expectedResult": "A successful result is shown"
+          }
+        ],
+        "automationStatus": "Planned"
+      }
+    ],
+    "assumptions": [
+      "Stub criteria are placeholders"
+    ],
+    "coverageGaps": [
+      "Negative and regression coverage await real requirements"
+    ],
+    "promptVersion": "plan/v1",
+    "isStub": true,
+    "schemaVersion": "1.0"
+  },
+  "decisions": [
+    {
+      "id": "d3a9050b69fa45309130f5c7d3d42b1d",
+      "jobId": "d978170e908b43c6ad62b4a3ab109d3d",
+      "stage": "Normalize",
+      "provider": "stub",
+      "promptVersion": "normalize/v1",
+      "summary": "Created synthetic requirement",
+      "at": "2026-09-13T21:22:37.38099+00:00",
+      "isStub": true,
+      "schemaVersion": "1.0"
+    },
+    {
+      "id": "4ed440b2016648b5a757500212d0403b",
+      "jobId": "d978170e908b43c6ad62b4a3ab109d3d",
+      "stage": "Plan",
+      "provider": "stub",
+      "promptVersion": "plan/v1",
+      "summary": "Created structured stub test plan",
+      "at": "2026-09-13T21:22:37.382466+00:00",
+      "isStub": true,
+      "schemaVersion": "1.0"
+    }
+  ],
+  "transitions": [
+    {
+      "status": "Queued",
+      "at": "2026-09-13T21:22:37.191447+00:00",
+      "reason": "Job accepted"
+    },
+    {
+      "status": "Normalizing",
+      "at": "2026-09-13T21:22:37.378877+00:00",
+      "reason": "Normalization started"
+    },
+    {
+      "status": "Planning",
+      "at": "2026-09-13T21:22:37.381021+00:00",
+      "reason": "Requirement persisted; planning started"
+    },
+    {
+      "status": "Completed",
+      "at": "2026-09-13T21:22:37.382466+00:00",
+      "reason": "Planning completed; no tests executed"
+    }
+  ],
+  "error": null,
+  "leaseToken": null,
+  "leaseUntil": null,
+  "schemaVersion": "1.0",
+  "isTerminal": true
+}

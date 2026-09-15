@@ -1,0 +1,45 @@
+name: verify
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.6-bookworm
+        env:
+          POSTGRES_DB: quality_test
+          POSTGRES_USER: quality
+          POSTGRES_PASSWORD: quality-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quality -d quality_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      QUALITY_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=quality_test;Username=quality;Password=quality-test-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: dotnet restore --locked-mode
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build
+      - run: npm ci && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm run test:execution
+      - run: python3 scripts/verify-modes.py
+      - run: docker compose build api
+      - run: docker compose up --no-build -d --wait
+      - run: python3 scripts/verify-artifacts.py
+      - run: python3 scripts/verify-compose.py --recreate
+      - run: docker compose --profile test run --rm smoke
+      - run: npm test
+        env:
+          QUALITY_BASE_URL: http://127.0.0.1:5080
+      - if: always()
+        run: docker compose down -v

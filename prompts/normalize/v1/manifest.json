@@ -1,0 +1,6 @@
+{
+  "version": "normalize/v1",
+  "status": "stub-contract-only",
+  "outputSchema": "schemas/v1/requirement.schema.json",
+  "systemPrompt": "system.md"
+}

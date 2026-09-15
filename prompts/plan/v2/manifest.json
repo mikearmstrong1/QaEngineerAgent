@@ -1,0 +1,7 @@
+{
+  "version": "plan/v2",
+  "systemPrompt": "system.md",
+  "outputSchema": "schemas/v1/planning-output.schema.json",
+  "promptSha256": "00c1cc52668099d384b0782413a4f63c57fffa51d1394d205f77e6f57098f3ee",
+  "schemaSha256": "7c82cba8e2720832957cb4c77412edbbdb8b23e58efa4428afbbd6710bf7fdbf"
+}

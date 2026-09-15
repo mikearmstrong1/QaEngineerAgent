@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/job.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "reference": {
+      "$ref": "https://quality.local/schemas/v1/requirement-reference.schema.json"
+    },
+    "status": {
+      "enum": [
+        "Queued",
+        "Normalizing",
+        "Planning",
+        "Completed",
+        "Failed"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requirement": {
+      "anyOf": [
+        {
+          "$ref": "https://quality.local/schemas/v1/requirement.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "testPlan": {
+      "anyOf": [
+        {
+          "$ref": "https://quality.local/schemas/v1/test-plan.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "https://quality.local/schemas/v1/agent-decision.schema.json"
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "Queued",
+              "Normalizing",
+              "Planning",
+              "Completed",
+              "Failed"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "at",
+          "reason"
+        ]
+      }
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "leaseToken": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "leaseUntil": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "isTerminal": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "reference",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "revision",
+    "requirement",
+    "testPlan",
+    "decisions",
+    "transitions",
+    "error",
+    "leaseToken",
+    "leaseUntil",
+    "schemaVersion",
+    "isTerminal"
+  ]
+}

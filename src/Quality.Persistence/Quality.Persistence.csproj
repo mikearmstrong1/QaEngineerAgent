@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../Quality.Domain/Quality.Domain.csproj" /><ProjectReference Include="../Quality.Orchestrator/Quality.Orchestrator.csproj" /></ItemGroup><ItemGroup><PackageReference Include="Npgsql" Version="8.0.8" /></ItemGroup></Project>

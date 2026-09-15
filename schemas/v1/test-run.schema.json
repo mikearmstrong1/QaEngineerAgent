@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/test-run.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "testPlanId": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "artifactKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "executorVersion": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "manifestHash": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "testCaseIds": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "storedArtifacts": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "localKey": {
+            "type": "string"
+          },
+          "objectKey": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "localKey",
+          "objectKey",
+          "bucket",
+          "contentType",
+          "length",
+          "sha256"
+        ]
+      }
+    },
+    "artifactUploadStatus": {
+      "enum": [
+        null,
+        "Uploading",
+        "Uploaded",
+        "Failed"
+      ]
+    },
+    "failureClassification": {
+      "enum": [
+        null,
+        "None",
+        "NeedsReview",
+        "ApplicationFailure",
+        "TestFailure",
+        "InfrastructureFailure",
+        "Cancelled"
+      ]
+    },
+    "failureReviewReason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "testPlanId",
+    "status",
+    "startedAt",
+    "finishedAt",
+    "artifactKeys",
+    "executorVersion",
+    "schemaVersion"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/agent-decision.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "jobId": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "promptVersion": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "isStub": {
+      "type": "boolean"
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "planning": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "requestedModel": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "providerVersion": {
+          "type": "string"
+        },
+        "promptHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "schemaHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "responseId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "provider",
+        "requestedModel",
+        "model",
+        "providerVersion",
+        "promptHash",
+        "schemaHash",
+        "attempts",
+        "responseId"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "jobId",
+    "stage",
+    "provider",
+    "promptVersion",
+    "summary",
+    "at",
+    "isStub",
+    "schemaVersion"
+  ]
+}

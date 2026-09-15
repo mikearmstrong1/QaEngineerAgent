@@ -1,0 +1,13 @@
+{
+  "summary": "Proposed sign-in coverage for review.",
+  "testCases": [{
+    "id": "TC-1",
+    "title": "Valid credentials grant access",
+    "category": "HappyPath",
+    "priority": "P1",
+    "acceptanceCriterionIds": ["AC-1"],
+    "steps": [{ "action": "Submit valid credentials", "expectedResult": "Account access is granted" }]
+  }],
+  "assumptions": [],
+  "coverageGaps": []
+}

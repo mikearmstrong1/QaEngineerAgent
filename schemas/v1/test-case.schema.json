@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/test-case.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "requirementId": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "string"
+    },
+    "acceptanceCriterionIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "expectedResult": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "expectedResult"
+        ]
+      }
+    },
+    "automationStatus": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "requirementId",
+    "title",
+    "category",
+    "priority",
+    "acceptanceCriterionIds",
+    "steps",
+    "automationStatus"
+  ]
+}
