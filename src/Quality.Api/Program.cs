@@ -37,6 +37,7 @@ try
         o.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
         o.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
+    var access = mode == "api" ? new ApiAccess(builder.Configuration) : null;
     ConfigureServices(builder.Services, builder.Configuration,
         mode == "api" && builder.Configuration.GetValue<bool>("Quality:RunWorker"));
     await using var app = builder.Build();
@@ -146,12 +147,14 @@ try
         Console.WriteLine(JsonSerializer.Serialize(result, ContractJson.Options));
         return result.Status == JobStatus.Failed ? 1 : 0;
     }
-    app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-system" }));
+    app.UseRouting();
+    app.Use((context, next) => access!.InvokeAsync(context, next));
+    app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-system" })).AllowAnonymous();
     app.MapGet("/ready", async (IJobStore store, CancellationToken ct) =>
     {
         try { await store.GetAsync("00000000000000000000000000000000", ct); return Results.Ok(new { status = "ready" }); }
         catch { return Results.StatusCode(503); }
-    });
+    }).AllowAnonymous();
     app.MapPost("/jobs", async (JobRequest request, CancellationToken ct) =>
     {
         try { var job = await jobs.SubmitAsync(request, ct); return Results.Accepted($"/jobs/{job.Id}", job); }
@@ -168,7 +171,7 @@ try
         <body><main><h1>Engineering Quality System</h1><p>Portable requirement-to-test planning.</p>
         <p>Completed jobs contain plans; inspect isStub and coverageGaps before use. Execute reviewed manifests separately to obtain test results.</p>
         <a href="/health">Service health</a></main></body></html>
-        """, "text/html"));
+        """, "text/html")).AllowAnonymous();
     await app.RunAsync();
     return 0;
 }

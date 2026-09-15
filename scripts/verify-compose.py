@@ -36,8 +36,10 @@ def compose(*parts, **kwargs): return command('compose', *parts, **kwargs)
 
 def request(path, body=None):
     payload = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request('http://127.0.0.1:5080' + path, data=payload,
-                                 headers={'Content-Type': 'application/json'})
+    headers = {'Content-Type': 'application/json'}
+    key = config['services']['api']['environment'].get('Quality__Api__Key')
+    if key: headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request('http://127.0.0.1:5080' + path, data=payload, headers=headers)
     with urllib.request.urlopen(req, timeout=5) as response:
         return response.status, json.load(response)
 

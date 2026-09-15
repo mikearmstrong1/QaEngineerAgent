@@ -4,6 +4,8 @@ x-quality: &quality
   build: .
   init: true
   environment: &quality-env
+    Quality__Api__Key: ${QUALITY_API_KEY:-}
+    Quality__Api__AllowAnonymous: ${QUALITY_API_ALLOW_ANONYMOUS:-false}
     Quality__Store: Postgres
     Quality__SourceControl__Workspace: /app
     Quality__SourceControl__ProposalDirectory: /data/executions/proposals
@@ -52,6 +54,7 @@ services:
     entrypoint: ["npm", "test"]
     command: []
     environment:
+      QUALITY_API_KEY: ${QUALITY_API_KEY:-}
       QUALITY_BASE_URL: http://api:8080
       QUALITY_ARTIFACT_DIR: /tmp/quality-artifacts
       npm_config_cache: /tmp/npm

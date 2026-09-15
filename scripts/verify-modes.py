@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix="quality-modes-") as directory:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     env = dict(os.environ, Quality__Store="File", Quality__DataDirectory=directory,
-               Quality__RunWorker="false", ASPNETCORE_URLS=f"http://127.0.0.1:{port}")
+               Quality__Api__Key="", Quality__Api__AllowAnonymous="true", Quality__RunWorker="false", ASPNETCORE_URLS=f"http://127.0.0.1:{port}")
     if os.environ.get("QUALITY_TEST_POSTGRES"):
         env.update(Quality__Store="Postgres", ConnectionStrings__Quality=os.environ["QUALITY_TEST_POSTGRES"])
     processes = []

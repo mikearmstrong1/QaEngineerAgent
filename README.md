@@ -26,7 +26,7 @@ Run API and worker in **two terminals from the repository root**, sharing the de
 
 ```sh
 # Terminal 1
-ASPNETCORE_URLS=http://127.0.0.1:5080 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll api
+Quality__Api__AllowAnonymous=true ASPNETCORE_URLS=http://127.0.0.1:5080 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll api
 # Terminal 2; worker has no HTTP listener
 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll worker
 ```
@@ -59,7 +59,7 @@ docker compose down
 
 API, worker, and one-shot use the **same image**, changing only the command and environment. The image contains .NET runtime, Node, Playwright and browsers, schemas, prompts, and application code; startup performs no installation or source generation. Compose uses PostgreSQL by default, with named database and MinIO volumes. `docker compose down` preserves them; `down -v` deletes them.
 
-MinIO uses the official Quay image (the former Docker Hub reference failed to pull). MinIO runs at [console](http://127.0.0.1:9001) / port 9000. Enable the [MinIO artifact adapter](docs/minio-artifacts.md) to upload execution evidence with checksums and retention. Initialize its dedicated bucket explicitly with `init-artifacts`; default Local mode makes no uploads. Development credentials are in `.env.example`. Ports bind to loopback. The API has no authentication yet and is for local development.
+MinIO uses the official Quay image (the former Docker Hub reference failed to pull). MinIO runs at [console](http://127.0.0.1:9001) / port 9000. Enable the [MinIO artifact adapter](docs/minio-artifacts.md) to upload execution evidence with checksums and retention. Initialize its dedicated bucket explicitly with `init-artifacts`; default Local mode makes no uploads. Development credentials are in `.env.example`. Ports bind to loopback. The example explicitly enables anonymous local development. For authenticated access, configure an API key as described in [API authentication](docs/api-authentication.md).
 
 To use only container dependencies with native .NET:
 
