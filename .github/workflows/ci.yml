@@ -18,10 +18,19 @@ jobs:
           --health-cmd "pg_isready -U quality -d quality_test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:
-      QUALITY_API_ALLOW_ANONYMOUS: "true"
+      QUALITY_API_ALLOW_ANONYMOUS: "false"
       QUALITY_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=quality_test;Username=quality;Password=quality-test-only
     steps:
       - uses: actions/checkout@v4
+      - name: Configure temporary verification key
+        run: |
+          python3 - <<'PYKEY'
+          import os, secrets
+          key = secrets.token_hex(32)
+          print('::add-mask::' + key)
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('QUALITY_API_KEY=' + key + '\n')
+          PYKEY
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -38,7 +47,10 @@ jobs:
       - run: npm run test:execution
       - run: python3 scripts/verify-modes.py
       - run: python3 scripts/verify-auth.py
+      - run: python3 scripts/verify-metrics.py
       - run: docker compose build api
+      - run: docker compose up --no-build -d --wait api minio
+      - run: python3 scripts/verify-container-controls.py
       - run: docker compose up --no-build -d --wait
       - run: python3 scripts/verify-artifacts.py
       - run: python3 scripts/verify-compose.py --recreate

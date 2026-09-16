@@ -17,7 +17,8 @@
         "Normalizing",
         "Planning",
         "Completed",
-        "Failed"
+        "Failed",
+        "Cancelled"
       ]
     },
     "createdAt": {
@@ -70,7 +71,8 @@
               "Normalizing",
               "Planning",
               "Completed",
-              "Failed"
+              "Failed",
+              "Cancelled"
             ]
           },
           "at": {
@@ -124,6 +126,41 @@
     },
     "isTerminal": {
       "type": "boolean"
+    },
+    "submissionKeyHash": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "providerOperations": {
+      "anyOf": [
+        {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "https://quality.local/schemas/v1/provider-operation.schema.json"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retryBudget": {
+      "anyOf": [
+        {
+          "$ref": "https://quality.local/schemas/v1/retry-budget.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

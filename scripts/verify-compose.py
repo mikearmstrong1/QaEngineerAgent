@@ -39,7 +39,7 @@ def request(path, body=None):
     headers = {'Content-Type': 'application/json'}
     key = config['services']['api']['environment'].get('Quality__Api__Key')
     if key: headers['Authorization'] = 'Bearer ' + key
-    req = urllib.request.Request('http://127.0.0.1:5080' + path, data=payload, headers=headers)
+    req = urllib.request.Request(env.get('QUALITY_VERIFY_API_URL', 'http://127.0.0.1:5080') + path, data=payload, headers=headers)
     with urllib.request.urlopen(req, timeout=5) as response:
         return response.status, json.load(response)
 
@@ -69,7 +69,7 @@ def s3(method, path, data=b''):
     now = datetime.datetime.now(datetime.timezone.utc)
     stamp, day = now.strftime('%Y%m%dT%H%M%SZ'), now.strftime('%Y%m%d')
     digest = hashlib.sha256(data).hexdigest()
-    host = '127.0.0.1:9000'
+    host = env.get('QUALITY_VERIFY_S3_HOST', '127.0.0.1:9000')
     headers = f'host:{host}\nx-amz-content-sha256:{digest}\nx-amz-date:{stamp}\n'
     signed = 'host;x-amz-content-sha256;x-amz-date'
     canonical = f'{method}\n{path}\n\n{headers}\n{signed}\n{digest}'

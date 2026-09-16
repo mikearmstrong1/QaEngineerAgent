@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/provider-operation.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "stage": {
+      "enum": [
+        "Normalize",
+        "Plan"
+      ]
+    },
+    "provider": {
+      "type": "string"
+    },
+    "inputHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "status": {
+      "enum": [
+        "Started",
+        "Completed",
+        "Failed",
+        "OutcomeUnknown",
+        "Cancelled"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retryAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "stage",
+    "provider",
+    "inputHash",
+    "status",
+    "attempts",
+    "startedAt",
+    "finishedAt",
+    "error"
+  ]
+}

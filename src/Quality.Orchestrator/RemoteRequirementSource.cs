@@ -79,7 +79,12 @@ public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOp
     {
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (!response.IsSuccessStatusCode) throw new HttpRequestException("Requirement source request failed", null, response.StatusCode);
+        if (!response.IsSuccessStatusCode)
+        {
+            var retryAfter = response.Headers.RetryAfter;
+            throw new RequirementRequestException(response.StatusCode,
+                retryAfter?.Delta ?? (retryAfter?.Date - DateTimeOffset.UtcNow));
+        }
         // Bound both compressed/unknown-length responses and parsing memory.
         using var buffer = new MemoryStream();
         await using var stream = await response.Content.ReadAsStreamAsync(ct);

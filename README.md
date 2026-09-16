@@ -1,6 +1,6 @@
 # Engineering Quality System
 
-Portable requirement-to-test planning with .NET, TypeScript, and Playwright. The service accepts a requirement reference, imports it through optional read-only Jira/Coda adapters (or creates a synthetic requirement in default Stub mode), creates a structured test plan through optional OpenAI planning (or a synthetic plan in default Stub mode), persists job transitions, and returns the result over HTTP or the CLI. `Completed` means planning completed; it does **not** mean application tests passed. Use [reviewed Playwright execution](docs/playwright-execution.md) to run tests and retrieve separate results, then [propose regression coverage](docs/regression-promotion.md) from passing runs.
+Portable requirement-to-test planning with .NET, TypeScript, and Playwright. The service accepts a requirement reference, imports it through optional read-only Jira/Coda adapters (or creates a synthetic requirement in default Stub mode), creates a structured test plan through optional OpenAI planning (or a synthetic plan in default Stub mode), persists job transitions, and returns the result over HTTP or the CLI. `Completed` means planning completed; it does **not** mean application tests passed. Operational [metrics](docs/metrics.md) expose process activity and timings. Jobs support [durable cancellation](docs/job-cancellation.md) through HTTP and CLI. Jobs have [durable retry and processing-time limits](docs/retry-budgets.md). Active workers [renew job leases](docs/lease-renewal.md) while processing. Interrupted jobs use [provider-operation recovery](docs/provider-recovery.md) to reuse saved results and flag uncertain planning calls for review. Use [reviewed Playwright execution](docs/playwright-execution.md) to run tests and retrieve separate results, then [propose regression coverage](docs/regression-promotion.md) from passing runs.
 
 ## Quick start: native
 
@@ -40,7 +40,7 @@ curl -i http://127.0.0.1:5080/jobs \
 curl http://127.0.0.1:5080/jobs/<job-id>
 ```
 
-`POST /jobs` returns `202` and a `Location` header. Poll that URL for `Completed` or `Failed`. The default Stub mode does not contact external providers. Enable [real requirements ingestion](docs/requirements-ingestion.md) and [structured planning](docs/structured-planning.md) to import source content and produce validated plans.
+`POST /jobs` returns `202` and a `Location` header. Supply an optional `Idempotency-Key` header to safely retry a submission; see [idempotent submissions](docs/idempotent-submissions.md) for API, CLI, and client usage. Poll that URL for `Completed`, `Failed`, or `Cancelled`. The default Stub mode does not contact external providers. Enable [real requirements ingestion](docs/requirements-ingestion.md) and [structured planning](docs/structured-planning.md) to import source content and produce validated plans.
 
 ## Quick start: containers
 

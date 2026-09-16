@@ -18,7 +18,7 @@ if desktop.exists():
 config = subprocess.run(['docker', 'compose', 'config', '--format', 'json'], cwd=root, env=env,
                         capture_output=True, text=True, timeout=20, check=True)
 credentials = json.loads(config.stdout)['services']['minio']['environment']
-env.update(QUALITY_TEST_MINIO_ENDPOINT='http://127.0.0.1:9000',
+env.update(QUALITY_TEST_MINIO_ENDPOINT=env.get('QUALITY_VERIFY_S3_URL', 'http://127.0.0.1:9000'),
            QUALITY_TEST_MINIO_ACCESS_KEY=credentials['MINIO_ROOT_USER'],
            QUALITY_TEST_MINIO_SECRET_KEY=credentials['MINIO_ROOT_PASSWORD'])
 with tempfile.TemporaryDirectory(prefix='quality-minio-check-') as reports:

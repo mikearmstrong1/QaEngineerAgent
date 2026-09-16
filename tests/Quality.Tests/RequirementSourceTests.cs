@@ -8,7 +8,7 @@ namespace Quality.Tests;
 public sealed class RequirementSourceTests
 {
     private static readonly RequirementSourceOptions Options = new("https://example.atlassian.net", "reader@example.com", "test-token", "customfield_10010", "coda-token", "c-title", "c-description", "c-criteria");
-    private sealed class Handler(string fixture, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler
+    private sealed class Handler(string fixture, HttpStatusCode status = HttpStatusCode.OK, int? retryAfterSeconds = null) : HttpMessageHandler
     {
         public Uri? Uri;
         public string? Scheme;
@@ -17,10 +17,22 @@ public sealed class RequirementSourceTests
             Assert.Equal(HttpMethod.Get, request.Method);
             Uri = request.RequestUri;
             Scheme = request.Headers.Authorization?.Scheme;
-            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(fixture) });
+            var response = new HttpResponseMessage(status) { Content = new StringContent(fixture) };
+            if (retryAfterSeconds is { } seconds) response.Headers.RetryAfter = new(TimeSpan.FromSeconds(seconds));
+            return Task.FromResult(response);
         }
     }
     private static string Fixture(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json"));
+
+    [Fact]
+    public async Task RetryAfterIsPreservedWithoutExposingResponseBody()
+    {
+        using var http = new HttpClient(new Handler("private response", HttpStatusCode.TooManyRequests, 20));
+        var error = await Assert.ThrowsAsync<RequirementRequestException>(() =>
+            new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "AUTH-1427"), default));
+        Assert.Equal(TimeSpan.FromSeconds(20), error.RetryAfter);
+        Assert.DoesNotContain("private", error.Message);
+    }
 
     [Fact]
     public async Task JiraPreservesSourceAndProvenance()
@@ -102,7 +114,7 @@ public sealed class RequirementSourceTests
     public async Task ProviderErrorsFailWithoutExposingBody(HttpStatusCode status)
     {
         using var http = new HttpClient(new Handler("sensitive source body", status));
-        var error = await Assert.ThrowsAsync<HttpRequestException>(() => new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "AUTH-1427"), default));
+        var error = await Assert.ThrowsAnyAsync<HttpRequestException>(() => new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "AUTH-1427"), default));
         Assert.DoesNotContain("sensitive", error.Message);
     }
 
