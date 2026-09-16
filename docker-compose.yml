@@ -7,6 +7,15 @@ x-quality: &quality
     Quality__Api__Key: ${QUALITY_API_KEY:-}
     Quality__Api__AllowAnonymous: ${QUALITY_API_ALLOW_ANONYMOUS:-false}
     Quality__Store: Postgres
+    Quality__Retry__MaxWorkerAttempts: ${QUALITY_RETRY_MAX_WORKER_ATTEMPTS:-5}
+    Quality__Retry__MaxNormalizationAttempts: ${QUALITY_RETRY_MAX_NORMALIZATION_ATTEMPTS:-3}
+    Quality__Retry__MaxDurationSeconds: ${QUALITY_RETRY_MAX_DURATION_SECONDS:-900}
+    Quality__Retry__InitialDelayMilliseconds: ${QUALITY_RETRY_INITIAL_DELAY_MILLISECONDS:-250}
+    Quality__Retry__MaxDelayMilliseconds: ${QUALITY_RETRY_MAX_DELAY_MILLISECONDS:-5000}
+    Quality__Lease__DurationSeconds: ${QUALITY_LEASE_DURATION_SECONDS:-300}
+    Quality__Lease__RenewalIntervalSeconds: ${QUALITY_LEASE_RENEWAL_INTERVAL_SECONDS:-60}
+    Quality__Lease__RenewalTimeoutSeconds: ${QUALITY_LEASE_RENEWAL_TIMEOUT_SECONDS:-15}
+    Quality__Lease__CancellationPollIntervalSeconds: ${QUALITY_LEASE_CANCELLATION_POLL_INTERVAL_SECONDS:-1}
     Quality__SourceControl__Workspace: /app
     Quality__SourceControl__ProposalDirectory: /data/executions/proposals
     Quality__Artifacts__Mode: ${QUALITY_ARTIFACTS_MODE:-Local}
@@ -44,6 +53,9 @@ services:
   worker:
     <<: *quality
     command: ["worker"]
+    environment:
+      <<: *quality-env
+      Quality__Metrics__WorkerUrl: ${QUALITY_METRICS_WORKER_URL:-}
   oneshot:
     <<: *quality
     profiles: ["cli"]

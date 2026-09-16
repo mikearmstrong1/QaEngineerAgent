@@ -16,10 +16,18 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && apt-get purge -y gstreamer1.0-plugins-bad libgstreamer-plugins-bad1.0-0 \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install --global --prefix /usr npm@12.0.2 \
-    && npm install --prefix /usr/lib/node_modules/npm --ignore-scripts --omit=dev --no-package-lock \
-        brace-expansion@5.0.9 ip-address@10.3.1 tar@7.5.21 \
-    && rm -rf /root/.npm
+# Replace only the vulnerable bundled packages from pinned public tarballs.
+# Installing inside npm's own project resolves unavailable development workspaces.
+RUN set -eu; \
+    npm install --global --prefix /usr npm@12.0.2; \
+    mkdir -p /tmp/npm-fixes; cd /tmp/npm-fixes; \
+    npm pack --ignore-scripts brace-expansion@5.0.9 ip-address@10.3.1 tar@7.5.21; \
+    for package in brace-expansion ip-address tar; do \
+        tar -xzf "${package}"-*.tgz; \
+        rm -rf "/usr/lib/node_modules/npm/node_modules/${package}"; \
+        mv package "/usr/lib/node_modules/npm/node_modules/${package}"; \
+    done; \
+    cd /tmp; rm -rf /tmp/npm-fixes /root/.npm
 COPY --from=dotnet-runtime /usr/share/dotnet /usr/share/dotnet
 ENV DOTNET_ROOT=/usr/share/dotnet PATH="/usr/share/dotnet:${PATH}" \
     ASPNETCORE_URLS=http://0.0.0.0:8080 Quality__Store=Postgres \

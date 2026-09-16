@@ -32,8 +32,10 @@ with tempfile.TemporaryDirectory(prefix='quality-auth-') as directory:
     # A configured key takes precedence over the demo setting.
     with open(Path(directory) / 'server.log', 'w') as log:
         process = subprocess.Popen(['dotnet', str(dll), 'api'], cwd=root, env=env, stdout=log, stderr=log)
-        def request(path, token=None, data=None):
+        def request(path, token=None, data=None, idempotency_key=None):
             headers = {'Content-Type': 'application/json'}
+            if idempotency_key is not None:
+                headers['Idempotency-Key'] = idempotency_key
             if token is not None:
                 headers['Authorization'] = token
             req = urllib.request.Request(base + path, headers=headers, data=data)
@@ -56,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='quality-auth-') as directory:
             assert request('/health')[0] == 200
             assert request('/')[0] == 200
             for token in [None, 'Basic ' + key, 'Bearer wrong', 'Bearer ' + secrets.token_hex(32), 'Bearer ' + key + ', Bearer ' + key]:
-                for path, body in [('/jobs', b'{invalid'), ('/jobs/not-an-id', None)]:
+                for path, body in [('/jobs', b'{invalid'), ('/jobs/not-an-id', None), ('/jobs/not-an-id/cancel', b'')]:
                     status, headers, content = request(path, token, body)
                     assert status == 401
                     assert headers['WWW-Authenticate'] == 'Bearer'
@@ -72,13 +74,62 @@ with tempfile.TemporaryDirectory(prefix='quality-auth-') as directory:
             connection.close()
             assert not list(Path(directory).glob('*.json')), 'Rejected submission created a job'
             payload = json.dumps({'reference': {'source': 'stub', 'id': 'auth-check'}}).encode()
-            status, _, body = request('/jobs', 'Bearer ' + key, payload)
+            status, _, body = request('/jobs', 'Bearer ' + key, payload, idempotency_key='cancel-replay')
             assert status == 202
             job = json.loads(body)
             assert request('/jobs/' + job['id'], 'bearer ' + key)[0] == 200
             assert request('/jobs/' + job['id'])[0] == 401
             assert request('/jobs?api_key=' + key, data=payload)[0] == 401
             assert request('/jobs', 'Bearer ' + key, b'{invalid')[0] == 400
+            cancel_url = '/jobs/' + job['id'] + '/cancel'
+            assert request(cancel_url, data=b'')[0] == 401
+            assert json.loads(request('/jobs/' + job['id'], 'Bearer ' + key)[2])['status'] == 'Queued'
+            assert request('/jobs/bad/cancel', 'Bearer ' + key, b'')[0] == 400
+            assert request('/jobs/' + '0' * 32 + '/cancel', 'Bearer ' + key, b'')[0] == 404
+            status, _, body = request(cancel_url, 'Bearer ' + key, b'')
+            cancelled = json.loads(body)
+            assert status == 200 and cancelled['status'] == 'Cancelled'
+            assert cancelled['leaseToken'] is None and cancelled['isTerminal']
+            validate = subprocess.run(['node', '-e', '''
+const fs = require('node:fs');
+const Ajv = require('ajv/dist/2020');
+const ajv = new Ajv({allErrors:true, strict:true});
+require('ajv-formats')(ajv);
+for (const name of fs.readdirSync('schemas/v1').filter(n => n.endsWith('.schema.json')))
+  ajv.addSchema(JSON.parse(fs.readFileSync('schemas/v1/' + name, 'utf8')));
+const validate = ajv.getSchema('https://quality.local/schemas/v1/job.schema.json');
+if (!validate(JSON.parse(fs.readFileSync(0, 'utf8')))) throw new Error(JSON.stringify(validate.errors));
+'''], input=body, cwd=root, capture_output=True, timeout=10)
+            assert validate.returncode == 0, validate.stderr
+
+            assert json.loads(request(cancel_url, 'Bearer ' + key, b'')[2]) == cancelled
+
+            def cli(*args):
+                return subprocess.run(['dotnet', str(dll), *args], cwd=root, env=env,
+                                      text=True, capture_output=True, timeout=30)
+
+            repeat = cli('cancel', '--id', job['id'])
+            assert repeat.returncode == 0 and json.loads(repeat.stdout) == cancelled
+            assert cli('get', '--id', job['id']).returncode == 1
+            replay = cli('run', '--source', 'stub', '--reference', 'auth-check', '--idempotency-key', 'cancel-replay')
+            assert replay.returncode == 1 and json.loads(replay.stdout) == cancelled
+            assert cli('cancel', '--id', '0' * 32).returncode == 3
+            assert cli('cancel', '--id', 'bad').returncode == 2
+            completed = cli('run', '--source', 'stub', '--reference', 'terminal-cancel')
+            assert completed.returncode == 0, completed.stderr
+            completed_job = json.loads(completed.stdout)
+            terminal_url = '/jobs/' + completed_job['id'] + '/cancel'
+            status, _, body = request(terminal_url, 'Bearer ' + key, b'')
+            assert status == 409 and json.loads(body)['error'] == 'job_already_terminal'
+            assert cli('cancel', '--id', completed_job['id']).returncode == 4
+            assert json.loads(request('/jobs/' + completed_job['id'], 'Bearer ' + key)[2]) == completed_job
+            # A fresh process processes another job without reviving the canceled one.
+            assert json.loads(request('/jobs/' + job['id'], 'Bearer ' + key)[2]) == cancelled
+            # Also exercise first-time CLI cancellation on a queued API submission.
+            queued = json.loads(request('/jobs', 'Bearer ' + key, payload)[2])
+            result = cli('cancel', '--id', queued['id'])
+            assert result.returncode == 0 and json.loads(result.stdout)['status'] == 'Cancelled'
+
         finally:
             process.terminate()
             try:
@@ -86,4 +137,4 @@ with tempfile.TemporaryDirectory(prefix='quality-auth-') as directory:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-    print('PASS: fail-closed configuration, public probes, bearer validation, protected reads/writes, no rejected-job side effects')
+    print('PASS: fail-closed configuration, public probes, bearer validation, protected reads/writes, durable HTTP/CLI cancellation, terminal conflict, no rejected-job side effects')

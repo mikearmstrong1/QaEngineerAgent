@@ -18,23 +18,23 @@ flowchart LR
     Store --> Read[HTTP GET /jobs/id or CLI get]
 ```
 
-Domain has no infrastructure dependency. Orchestrator depends on Domain, JsonSchema.Net and the S3 SDK. Persistence depends on those two and Npgsql. Api is the composition root. Both HTTP and CLI use the same JobService and storage implementations. The standalone worker uses a generic host with graceful signal handling and no HTTP listener.
+Domain has no infrastructure dependency. Orchestrator depends on Domain, JsonSchema.Net and the S3 SDK. Persistence depends on those two and Npgsql. Api is the composition root. Both HTTP and CLI use the same JobService and storage implementations. The standalone worker uses a generic host with graceful signal handling and no HTTP listener by default; its optional authenticated [metrics listener](metrics.md) uses a web host and exposes only `/metrics`.
 
 ## Durable data and transitions
 
 `Requirement` records source reference/revision, actors, preconditions, criteria, and risks. `TestCase` links steps and expected results to acceptance criterion IDs. `TestPlan` groups cases with assumptions, coverage gaps, and prompt version. `AgentDecision` stores provider audit metadata. Explicit execution creates separate `TestRun` records and local evidence; `FailureAnalysis` remains a contract for a later slice.
 
-A `QualityJob` stores its request, normalized requirement, plan, decisions, transition history, timestamps, error code, and concurrency metadata as one aggregate. PostgreSQL stores it as JSONB alongside indexed claim fields. Each save atomically replaces the aggregate and updates status/revision; transitions and outputs therefore commit together. History is embedded, not a separate event-sourcing system.
+A `QualityJob` stores its request, normalized requirement, plan, decisions, transition history, timestamps, error code, and concurrency metadata as one aggregate. PostgreSQL stores it as JSONB alongside indexed claim fields. Each save atomically replaces the aggregate and updates status/revision; outputs and provider-operation records commit together; the following stage transition is a separate recoverable save. History is embedded, not a separate event-sourcing system.
 
-Valid flow: `Queued → Normalizing → Planning → Completed`, or any nonterminal stage → `Failed`. A requirement must exist before Planning; a plan must exist before Completed. Terminal jobs cannot be claimed again. Explicit provider failures persist a sanitized `provider_failure` error. Cancellation leaves a nonterminal checkpoint for recovery.
+Valid flow: `Queued → Normalizing → Planning → Completed`, or any nonterminal stage → `Failed` or `Cancelled`. A requirement must exist before Planning; a plan must exist before Completed. Terminal jobs cannot be claimed again. Explicit provider failures persist a sanitized `provider_failure` error. Worker shutdown leaves a nonterminal checkpoint; recovery safely repeats read-only imports but flags uncertain planning calls for review.
 
-PostgreSQL claims use `FOR UPDATE SKIP LOCKED` in a transaction. A claim has a random token, a five-minute lease, and an incremented revision. Every save checks revision, token, and unexpired lease using database time. Expired claims are reclaimable; stale owners cannot save. Workers resume the persisted stage after lease expiry. A provider operation may repeat if interrupted before its checkpoint: delivery is **at least once**, not exactly once.
+PostgreSQL claims use `FOR UPDATE SKIP LOCKED` in a transaction. A claim has a random token, a five-minute lease, and an incremented revision. Every save checks revision, token, and unexpired lease using database time. Expired claims are reclaimable; stale owners cannot save. Workers resume the persisted stage after lease expiry within [durable retry budgets](retry-budgets.md); exhausted claims become terminal without another provider call. The [provider-operation journal](provider-recovery.md) reuses persisted results. Interrupted read-only imports may repeat; planning operations with a recorded start and no saved result stop with a review-required error instead of being called again. Provider execution is not guaranteed exactly once.
 
-There is no lease heartbeat yet. Remote ingestion has a 30-second deadline and structured planning a configurable total deadline capped at 80 seconds. Real operations longer than five minutes require lease renewal and bounded provider timeouts. Provider side effects must become idempotent before wiring external writes. The one-shot client waits at most two minutes; if another worker owns an interrupted job, the command may time out before its lease expires. The submitted job remains durable.
+Active attempts now [renew their leases](lease-renewal.md), with serialized checkpoint writes and bounded renewal attempts. Remote ingestion has a 30-second deadline and structured planning a configurable total deadline capped at 80 seconds. Lease renewal preserves ownership during long operations; provider deadlines remain independently bounded. Provider side effects must become idempotent before wiring external writes. The one-shot client waits at most two minutes; if another worker owns an interrupted job, the command may time out before its lease expires. The submitted job remains durable.
 
 The file store uses an exclusive file lock across processes and atomic same-directory replacement. It is intended for a small local workspace on local disk, not network filesystems or multi-host deployments. It does not promise power-loss durability from an fsync journal. PostgreSQL is the deployment path.
 
-Initialization serializes the initial `CREATE TABLE/INDEX IF NOT EXISTS` through a PostgreSQL transaction advisory lock. This is a bootstrap schema, not a production migration system; add ordered migrations before changing the schema in a deployed environment.
+Initialization applies ordered, checksummed [PostgreSQL migrations](database-migrations.md) under a transaction advisory lock. The operation journal uses the existing JSONB document. Migration 3 excludes Cancelled jobs from the pending-job index.
 
 ## Portable runtime
 
@@ -46,7 +46,7 @@ The package lockfiles are checked in. Playwright's package and browser image bot
 
 - Live Jira/Coda/LLM access requires operator-supplied credentials; these integrations have fixture verification.
 - Browser tests are generated from a reviewed action manifest. Arbitrary code, healing and remote PR creation are not implemented. Passing reviewed tests can be proposed as isolated Git patches; remote evidence upload is available through MinIO.
-- No authentication, tenant isolation, API rate limiting, submission idempotency key, or cancellation endpoint yet.
+- API bearer-key authentication and submission idempotency are implemented. Tenant isolation and API rate limiting remain pending. Process-local [metrics](metrics.md) are implemented. Durable [job cancellation](job-cancellation.md) is implemented.
 - Test schemas validate wire shape; they do not prove coverage quality. The API validates incoming references, and smoke tests validate a real response against composed schemas. Runtime JSON Schema and traceability validation protects the structured planning boundary.
 - Live planning loads hash-pinned plan/v2 prompt/schema assets. Stub mode stays offline.
 - The SDK currently exposes the subset used by the smoke tests; JSON schemas and C# models define the complete contract. Generate full SDK types from schemas when extending execution.

@@ -18,6 +18,14 @@ internal static class PostgresMigrations
         );
         CREATE INDEX IF NOT EXISTS ix_quality_jobs_pending ON quality_jobs(created_at)
             WHERE status NOT IN ('Completed', 'Failed');
+        """, """
+        CREATE UNIQUE INDEX ux_quality_jobs_submission_key
+            ON quality_jobs ((document->>'submissionKeyHash'))
+            WHERE document->>'submissionKeyHash' IS NOT NULL;
+        """, """
+        DROP INDEX IF EXISTS ix_quality_jobs_pending;
+        CREATE INDEX ix_quality_jobs_pending ON quality_jobs(created_at)
+            WHERE status NOT IN ('Completed', 'Failed', 'Cancelled');
         """];
 
     public static async Task ApplyAsync(NpgsqlDataSource source, CancellationToken ct)

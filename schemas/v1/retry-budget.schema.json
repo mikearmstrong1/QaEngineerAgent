@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quality.local/schemas/v1/retry-budget.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "maxWorkerAttempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "maxNormalizationAttempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "maxDurationSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400
+    },
+    "initialDelayMilliseconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60000
+    },
+    "maxDelayMilliseconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60000
+    },
+    "workerAttempts": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "deadlineAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "lastClaimedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "maxWorkerAttempts",
+    "maxNormalizationAttempts",
+    "maxDurationSeconds",
+    "initialDelayMilliseconds",
+    "maxDelayMilliseconds",
+    "workerAttempts",
+    "deadlineAt",
+    "lastClaimedAt"
+  ]
+}

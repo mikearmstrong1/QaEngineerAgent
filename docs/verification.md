@@ -95,3 +95,7 @@ The Compose stack was left running on loopback ports 5080 (API), 54329 (PostgreS
 - Verified assertion mismatches remain NeedsReview until explicit classification; test locator failures and infrastructure/network-policy failures are distinguished. No assertion was weakened or source test overwritten.
 - TypeScript build and all three browser/API planning smoke checks passed.
 - The Dockerfile now includes Git and Compose persists proposals, but the image was not rebuilt in this slice. No patch was applied to the user's working repository, and no remote branch or PR was created. Local tests used temporary repositories and fixture servers outside the filesystem sandbox.
+
+## Deployment verification — 2026-09-16
+
+See [current candidate results](deployment-verification.md) and [image identity](deployment-candidate.json). Local current-source container verification passed, including a clean HIGH/CRITICAL scan after npm repair. Remote CI, registry publication and deployment remain pending.

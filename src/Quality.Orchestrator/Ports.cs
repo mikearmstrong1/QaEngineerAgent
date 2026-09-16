@@ -29,9 +29,15 @@ public interface IJobStore
 {
     Task InitializeAsync(CancellationToken ct);
     Task CreateAsync(QualityJob job, CancellationToken ct);
+    Task<QualityJob> CreateOrGetAsync(QualityJob job, CancellationToken ct);
     Task<QualityJob?> GetAsync(string id, CancellationToken ct);
+    Task<QualityJob?> CancelAsync(string id, CancellationToken ct);
+    // A claim consumes a worker attempt atomically; exhaustion returns a persisted terminal job.
     Task<QualityJob?> ClaimAsync(string? id, TimeSpan lease, CancellationToken ct);
+    // Renewal changes only lease expiry and revision, and must not revive an expired claim.
+    Task<QualityJob> RenewLeaseAsync(QualityJob job, TimeSpan lease, CancellationToken ct);
     // A save must fence both revision and lease ownership; expired workers cannot overwrite a newer attempt.
     Task<QualityJob> SaveAsync(QualityJob job, CancellationToken ct);
 }
+public sealed class IdempotencyConflictException() : Exception("Idempotency key was already used for a different request");
 public sealed class LeaseLostException() : Exception("Job lease expired or ownership changed");

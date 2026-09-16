@@ -9,10 +9,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 | get --id <job-id> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -23,6 +23,24 @@ try
     {
         if (args.Length > 1) throw new ArgumentException("worker takes no arguments");
         var workerBuilder = Host.CreateApplicationBuilder();
+        var metricsUrl = workerBuilder.Configuration["Quality:Metrics:WorkerUrl"];
+        if (!string.IsNullOrEmpty(metricsUrl))
+        {
+            if (!Uri.TryCreate(metricsUrl, UriKind.Absolute, out var uri) || uri.Scheme != "http" ||
+                uri.AbsolutePath != "/" || uri.Query.Length != 0 || uri.Fragment.Length != 0 || uri.UserInfo.Length != 0)
+                throw new ArgumentException("Quality__Metrics__WorkerUrl must be an HTTP origin, such as http://127.0.0.1:5081");
+            var metricsBuilder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
+            metricsBuilder.WebHost.UseUrls(metricsUrl);
+            var metricsAccess = new ApiAccess(metricsBuilder.Configuration);
+            ConfigureServices(metricsBuilder.Services, metricsBuilder.Configuration, true);
+            await using var metricsHost = metricsBuilder.Build();
+            await metricsHost.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+            metricsHost.UseRouting();
+            metricsHost.Use((context, next) => metricsAccess.InvokeAsync(context, next));
+            MapMetrics(metricsHost);
+            await metricsHost.RunAsync();
+            return 0;
+        }
         ConfigureServices(workerBuilder.Services, workerBuilder.Configuration, true);
         using var host = workerBuilder.Build();
         await host.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
@@ -126,15 +144,16 @@ try
         }
         finally { Console.CancelKeyPress -= cancel; }
     }
-    if (mode is "run" or "get")
+    if (mode is "run" or "get" or "cancel")
     {
-        var options = ParseOptions(args.Skip(1).ToArray(), mode == "run" ? ["--source", "--reference"] : ["--id"]);
+        var options = ParseOptions(args.Skip(1).ToArray(), mode == "run" ? ["--source", "--reference"] : ["--id"], mode == "run" ? ["--idempotency-key"] : []);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         QualityJob? result;
         if (mode == "get") result = await jobs.GetAsync(options["--id"], timeout.Token);
+        else if (mode == "cancel") result = await jobs.CancelAsync(options["--id"], timeout.Token);
         else
         {
-            var submitted = await jobs.SubmitAsync(new(new(options["--source"], options["--reference"])), timeout.Token);
+            var submitted = await jobs.SubmitAsync(new(new(options["--source"], options["--reference"])), timeout.Token, options.GetValueOrDefault("--idempotency-key"));
             result = await jobs.ProcessNextAsync(submitted.Id, timeout.Token);
             // Another worker may claim this job between submission and one-shot execution.
             while (result is null || !result.IsTerminal)
@@ -145,20 +164,37 @@ try
         }
         if (result is null) { Console.Error.WriteLine("Job not found"); return 3; }
         Console.WriteLine(JsonSerializer.Serialize(result, ContractJson.Options));
-        return result.Status == JobStatus.Failed ? 1 : 0;
+        if (mode == "cancel") return result.Status == JobStatus.Cancelled ? 0 : 4;
+        return result.Status is JobStatus.Failed or JobStatus.Cancelled ? 1 : 0;
     }
     app.UseRouting();
     app.Use((context, next) => access!.InvokeAsync(context, next));
+    MapMetrics(app);
     app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-system" })).AllowAnonymous();
     app.MapGet("/ready", async (IJobStore store, CancellationToken ct) =>
     {
         try { await store.GetAsync("00000000000000000000000000000000", ct); return Results.Ok(new { status = "ready" }); }
         catch { return Results.StatusCode(503); }
     }).AllowAnonymous();
-    app.MapPost("/jobs", async (JobRequest request, CancellationToken ct) =>
+    app.MapPost("/jobs", async (JobRequest request, HttpRequest http, CancellationToken ct) =>
     {
-        try { var job = await jobs.SubmitAsync(request, ct); return Results.Accepted($"/jobs/{job.Id}", job); }
+        try
+        {
+            var keys = http.Headers["Idempotency-Key"];
+            if (keys.Count > 1) return Results.BadRequest(new { error = "multiple_idempotency_keys" });
+            var job = await jobs.SubmitAsync(request, ct, keys.Count == 0 ? null : keys.ToString());
+            return Results.Accepted($"/jobs/{job.Id}", job);
+        }
+        catch (IdempotencyConflictException) { return Results.Conflict(new { error = "idempotency_key_conflict" }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["reference"] = [ex.Message] }); }
+    });
+    app.MapPost("/jobs/{id}/cancel", async (string id, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        var job = await jobs.CancelAsync(id, ct);
+        if (job is null) return Results.NotFound();
+        return job.Status == JobStatus.Cancelled ? Results.Ok(job)
+            : Results.Conflict(new { error = "job_already_terminal", job });
     });
     app.MapGet("/jobs/{id}", async (string id, CancellationToken ct) =>
     {
@@ -179,12 +215,21 @@ catch (ArgumentException ex) { Console.Error.WriteLine(ex.Message); return 2; }
 catch (OperationCanceledException) { Console.Error.WriteLine("Operation timed out; inspect persisted job state"); return 1; }
 catch (Exception ex) { Console.Error.WriteLine($"Startup or operation failed ({ex.GetType().Name})"); return 1; }
 
-static Dictionary<string, string> ParseOptions(string[] values, string[] allowed)
+static void MapMetrics(WebApplication app)
+{
+    app.MapGet("/metrics", (HttpContext context, JobMetrics metrics) =>
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Text(metrics.Render(), "text/plain; version=0.0.4; charset=utf-8");
+    });
+}
+
+static Dictionary<string, string> ParseOptions(string[] values, string[] allowed, string[]? optional = null)
 {
     var parsed = new Dictionary<string, string>();
     if (values.Length % 2 != 0) throw new ArgumentException("Every option requires a value");
     for (var i = 0; i < values.Length; i += 2)
-        if (!allowed.Contains(values[i]) || !parsed.TryAdd(values[i], values[i + 1]))
+        if (!allowed.Contains(values[i]) && !(optional?.Contains(values[i]) ?? false) || !parsed.TryAdd(values[i], values[i + 1]))
             throw new ArgumentException($"Unknown or duplicate option: {values[i]}");
     if (allowed.Any(a => !parsed.ContainsKey(a))) throw new ArgumentException($"Required options: {string.Join(", ", allowed)}");
     return parsed;
@@ -193,16 +238,33 @@ static Dictionary<string, string> ParseOptions(string[] values, string[] allowed
 static void ConfigureServices(IServiceCollection services, IConfiguration configuration, bool runWorker)
 {
     services.AddSingleton(TimeProvider.System);
+    services.AddSingleton<JobMetrics>();
+    var lease = configuration.GetSection("Quality:Lease");
+    var leaseOptions = new JobLeaseOptions
+    {
+        Duration = TimeSpan.FromSeconds(lease.GetValue("DurationSeconds", 300d)),
+        RenewalInterval = TimeSpan.FromSeconds(lease.GetValue("RenewalIntervalSeconds", 60d)),
+        RenewalTimeout = TimeSpan.FromSeconds(lease.GetValue("RenewalTimeoutSeconds", 15d)),
+        CancellationPollInterval = TimeSpan.FromSeconds(lease.GetValue("CancellationPollIntervalSeconds", 1d))
+    };
+    leaseOptions.Validate();
+    services.AddSingleton(leaseOptions);
+    var retry = configuration.GetSection("Quality:Retry");
+    var retryOptions = new RetryBudgetOptions(retry.GetValue("MaxWorkerAttempts", 5), retry.GetValue("MaxNormalizationAttempts", 3),
+        retry.GetValue("MaxDurationSeconds", 900), retry.GetValue("InitialDelayMilliseconds", 250), retry.GetValue("MaxDelayMilliseconds", 5000));
+    retryOptions.Snapshot();
+    services.AddSingleton(retryOptions);
     var storeKind = configuration["Quality:Store"] ?? "File";
     if (storeKind.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
     {
         var connection = configuration.GetConnectionString("Quality")
             ?? throw new ArgumentException("ConnectionStrings__Quality is required for PostgreSQL");
         services.AddSingleton(_ => NpgsqlDataSource.Create(connection));
-        services.AddSingleton<IJobStore, PostgresJobStore>();
+        services.AddSingleton<PostgresJobStore>();
+        services.AddSingleton<IJobStore>(sp => new MeteredJobStore(sp.GetRequiredService<PostgresJobStore>(), sp.GetRequiredService<JobMetrics>()));
     }
     else if (storeKind.Equals("File", StringComparison.OrdinalIgnoreCase))
-        services.AddSingleton<IJobStore>(sp => new FileJobStore(configuration["Quality:DataDirectory"] ?? "./data/jobs", sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IJobStore>(sp => new MeteredJobStore(new FileJobStore(configuration["Quality:DataDirectory"] ?? "./data/jobs", sp.GetRequiredService<TimeProvider>()), sp.GetRequiredService<JobMetrics>()));
     else throw new ArgumentException("Quality__Store must be File or Postgres");
     var sourceKind = configuration["Quality:Requirements:Mode"] ?? "Stub";
     if (sourceKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))

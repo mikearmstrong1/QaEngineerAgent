@@ -1,0 +1,46 @@
+{
+  "verifiedAt": "2026-09-16T12:53:23.071849876Z",
+  "platform": "linux/arm64",
+  "localTag": "quality-system:verify-20260916",
+  "localImageDigest": "sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81",
+  "localRepoDigests": [
+    "quality-system@sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81"
+  ],
+  "registryDeploymentReference": null,
+  "sourceHead": "dc5a39154734096a9ae23be39375b77ee6ddc1cc",
+  "sourceHasUncommittedChanges": true,
+  "buildInputFingerprintSha256": "44a0a6802f61d4a322cd73a13b90f8fc35a4519bdfa2776cdbcde26b45cba596",
+  "buildInputFiles": 94,
+  "scanner": {
+    "version": "0.74.0",
+    "image": "aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
+    "severities": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "findings": 0,
+    "ignoredUnfixed": false,
+    "reportSha256": "2b1bbb87a9cd6e3e049c9125d2fe8349985c530e2476cae90b9bd1214e1e8490"
+  },
+  "checks": {
+    "dotnet": {
+      "passed": 163,
+      "skipped": 0
+    },
+    "executionAndRegression": {
+      "passed": 10
+    },
+    "containerSmoke": {
+      "passed": 5
+    },
+    "hostSmoke": {
+      "passed": 5
+    },
+    "composeRolesAndPersistence": "passed",
+    "containerControls": "passed",
+    "workerMetrics": "passed"
+  },
+  "remoteCi": "branch_upload_approved_run_pending",
+  "published": false,
+  "deployed": false
+}
