@@ -1,38 +1,38 @@
-# Deployment verification — 2026-09-16
+# Deployment verification — 2026-09-18
 
-**Local verification passed. Release verification is incomplete:** the user approved uploading a verification branch, and its remote CI run remains pending; registry publication and deployment have not happened.
+**Status checked 2026-09-18: local and remote verification passed; release preparation remains.** The corrected verification branch passed its complete GitHub Actions workflow. A fresh local Linux arm64 image from that exact clean commit passed the container, browser, persistence, integration, and HIGH/CRITICAL scan gates. Registry publication and deployment remain pending. See the [current build plan](next-steps.md).
 
 ## Verified candidate
 
-See [machine-readable candidate record](deployment-candidate.json) for the exact local image digest, platform, build-input fingerprint, scanner identity, and results. The candidate tag is `quality-system:verify-20260916` and its digest is:
+See [machine-readable candidate record](deployment-candidate.json) for the exact local image digest, source commit, build-input fingerprint, scanner identity, test results, and evidence hashes. The candidate tag is `quality-system:verify-6a6f7ea` and its digest is:
 
 ```text
-sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81
+sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971
 ```
 
-This is a **local Linux arm64 candidate**, not a published registry-qualified deployment reference. Do not substitute the tag for an immutable registry deployment digest. No other architecture was verified in this run.
+This is a **local Linux arm64 candidate** built from clean commit `6a6f7ea5d255d7c04630f444811bcebc48d8530d`, not a published registry-qualified deployment reference. Do not substitute the tag for an immutable registry deployment digest. No other architecture was verified in this run.
 
 ## Results
 
 | Check | Result |
 | --- | --- |
-| Current-source Docker build | Passed after repairing npm installation |
+| September 18 source-clean Docker build | Passed for Linux arm64 from verification commit |
 | Trivy 0.74.0, all HIGH/CRITICAL findings | Passed: 0 findings, no unfixed-vulnerability exclusions |
-| .NET suite with disposable PostgreSQL and MinIO | 163 passed, 0 skipped |
+| .NET suite with isolated PostgreSQL test database and MinIO | 165 passed, 0 skipped |
 | Reviewed browser execution and regression checks | 10 passed |
 | Host Chromium/API suite against final container | 5 passed |
 | Same suite inside the final read-only image | 5 passed |
 | API/worker/CLI share one image; non-root and read-only runtime | Passed |
 | Job and MinIO object durability after container recreation | Passed |
 | Authenticated metrics, queued cancellation, repeated cancellation, submission replay | Passed |
-| Worker metrics authentication and process separation | Passed |
+| API and worker metrics authentication and scrapes | Passed |
 | Cancellation stays terminal after worker start/recreation | Passed |
 | MinIO adapter verification script on alternate endpoint | Passed |
-| Remote GitHub Actions for current changes | Pending verification-branch run; upload approved |
+| Remote GitHub Actions | Updated verification branch passed the complete workflow; image publication skipped |
 | Registry publication / immutable registry deployment reference | Not created |
 | Deployment | Not performed |
 
-Trivy used the official image pinned to `aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`. The final report timestamp and SHA-256 are in the candidate record. This result is limited to the selected severities and vulnerability database at scan time; it does not claim absence of all vulnerabilities.
+Trivy used the official image pinned to `aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969` and scanned OS, Node, and .NET packages in the exact image digest above. The report timestamp and SHA-256 are in the candidate record. This result is limited to the selected severities and vulnerability database at scan time.
 
 ## Build repair
 
@@ -50,7 +50,7 @@ Qwen supplied the verification checklist, repair proposals, container-control te
 
 ## Isolation and repeatability
 
-Testing used Compose project `quality-verify-20260916`, its own network and named volumes, fresh test credentials, and loopback ports 5088 (API), 5089 (worker metrics), 54339 (PostgreSQL), and 9010/9011 (MinIO). The original `quality-system` project on 5080/54329/9000/9001 was not recreated or migrated.
+Testing used Compose project `quality-final-20260918`, its own network and named volumes, fresh test credentials, a separate PostgreSQL test database, and loopback ports 5088 (API), 5089 (worker metrics), 54339 (PostgreSQL), and 9010/9011 (MinIO). The original `quality-system` project on 5080/54329/9000/9001 remained running and was not recreated or migrated.
 
 The verification scripts now support alternate endpoints:
 
@@ -58,10 +58,20 @@ The verification scripts now support alternate endpoints:
 - `scripts/verify-artifacts.py`: `QUALITY_VERIFY_S3_URL` and the selected Compose configuration.
 - `scripts/verify-container-controls.py`: requires an authenticated API with its worker stopped; uses `QUALITY_VERIFY_API_URL` and the selected Compose configuration. Start the worker after it passes.
 
-CI now generates a temporary API key, runs the authenticated container controls before starting the worker, and retains the HIGH/CRITICAL scan gate. These workflow changes have not yet run remotely. Raw local logs, scanner reports, source-input hashes, and temporary Compose configuration are retained in `/tmp/quality-deployment`; temporary credentials are not committed.
+CI generates a temporary API key, runs the authenticated container controls before starting the worker, and retains the HIGH/CRITICAL scan gate. The updated verification-branch run passed all these steps and skipped image publication. Local build, test, scan, and cleanup evidence is retained in `/tmp/quality-final-20260918`, with SHA-256 hashes in the candidate record. Temporary credentials were held in a mode-600 file outside the repository and removed after verification. The isolated containers, network, and synthetic test volumes were removed; the verified image remains locally available.
+
+## Current checkpoint — 2026-09-18
+
+The approved verification snapshot was pushed to `verify/deployment-20260916` at `264a940117617740868bf8530cce1f6ea14d5010`. [Run 35100842568](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35100842568) failed `RetryBudgetTests.RestartPreservesBackoffAndDoesNotSpendAnAttemptBeforeCalling` (expected Completed, actual Failed).
+
+Local and remote main now match `7747fadbd68496ebf9efb65076c4b9f7ae580e20`, including the subsequent retry deadline fix. [Main run 35115693503](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35115693503) failed at the .NET test stage as well; its precise failure still needs investigation.
+
+The focused Linux retry/timing checks passed 19 tests with one PostgreSQL skip. An earlier broader local run was aborted after 155 passes and one MinIO skip. On September 18, the frozen `JobTests.TestClock` was corrected to advance with elapsed time and an explicit atomic offset. The focused macOS job/retry suite passed 31 tests with one PostgreSQL skip, and the full Release .NET suite passed 165 tests with zero skips against disposable PostgreSQL and MinIO containers.
+
+The verification branch was merged from current main and updated with the correction at `6a6f7ea5d255d7c04630f444811bcebc48d8530d`. [Run 35348519327](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35348519327) passed .NET, Node, browser, Compose, artifact, persistence/recreation, and HIGH/CRITICAL scan steps. Its image-publication step was skipped because the run was on the verification branch.
+
+The September 16 digest `sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81` is historical and was superseded by the September 18 candidate. The passing CI image was ephemeral; the local arm64 image above is the recorded candidate for possible publication.
 
 ## Remaining gates
 
-Automatic approval review rejected creating and pushing a snapshot branch because the operation would export uncommitted source files and mutate a remote branch without explicit approval. That rejected attempt pushed no branch or commit. The user subsequently explicitly approved pushing a verification branch to the existing `mikearmstrong1/QaEngineerAgent` repository. Repository ownership was verified and the prepared snapshot passed a local secret scan. Main remains unchanged.
-
-With upload approval granted, create a snapshot in a separate checkout, push only the verification branch, and run the complete workflow on that exact snapshot. Main-only image publication must remain disabled for that verification run. Resolve any platform/CI differences before a separately authorized registry publication. Record the registry-qualified digest of the published, verified artifact before deployment.
+Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. Main-branch CI now verifies without automatic publication, so prepare an explicit push of the exact local arm64 image. Obtain authorization before publication and deployment, verify the registry-qualified immutable digest and architecture after pushing, and deploy that digest. Preserve the existing running stack until deployment is authorized.

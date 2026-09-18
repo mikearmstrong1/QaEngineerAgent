@@ -109,9 +109,14 @@ public sealed class JobTests : IDisposable
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     private sealed class TestClock : TimeProvider
     {
-        private DateTimeOffset now = DateTimeOffset.UtcNow;
-        public override DateTimeOffset GetUtcNow() => now;
-        public void Advance(TimeSpan duration) => now += duration;
+        private readonly DateTimeOffset startedAt = TimeProvider.System.GetUtcNow();
+        private readonly long startTimestamp = TimeProvider.System.GetTimestamp();
+        private long offsetTicks;
+
+        public override DateTimeOffset GetUtcNow() => startedAt + TimeProvider.System.GetElapsedTime(startTimestamp)
+            + TimeSpan.FromTicks(Interlocked.Read(ref offsetTicks));
+
+        public void Advance(TimeSpan duration) => Interlocked.Add(ref offsetTicks, duration.Ticks);
     }
     private sealed class BrokenLlm : ILlmProvider
     {

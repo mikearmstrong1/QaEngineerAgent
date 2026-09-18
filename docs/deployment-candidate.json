@@ -1,16 +1,16 @@
 {
-  "verifiedAt": "2026-09-16T12:53:23.071849876Z",
+  "verifiedAt": "2026-09-18T13:34:28.651265Z",
   "platform": "linux/arm64",
-  "localTag": "quality-system:verify-20260916",
-  "localImageDigest": "sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81",
+  "localTag": "quality-system:verify-6a6f7ea",
+  "localImageDigest": "sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971",
   "localRepoDigests": [
-    "quality-system@sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81"
+    "quality-system@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971"
   ],
   "registryDeploymentReference": null,
-  "sourceHead": "dc5a39154734096a9ae23be39375b77ee6ddc1cc",
-  "sourceHasUncommittedChanges": true,
-  "buildInputFingerprintSha256": "44a0a6802f61d4a322cd73a13b90f8fc35a4519bdfa2776cdbcde26b45cba596",
-  "buildInputFiles": 94,
+  "sourceHead": "6a6f7ea5d255d7c04630f444811bcebc48d8530d",
+  "sourceHasUncommittedChanges": false,
+  "buildInputFingerprintSha256": "bbd6d78af4eeef084c21a1087d213c6456aa8fa3ae456ec58eeeeeed1d0b9f82",
+  "buildInputFiles": 96,
   "scanner": {
     "version": "0.74.0",
     "image": "aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
@@ -20,11 +20,12 @@
     ],
     "findings": 0,
     "ignoredUnfixed": false,
-    "reportSha256": "2b1bbb87a9cd6e3e049c9125d2fe8349985c530e2476cae90b9bd1214e1e8490"
+    "reportCreatedAt": "2026-09-18T13:27:18.890844221Z",
+    "reportSha256": "680b2530f58282c6f53322407139d2652843aa6d77f067dcbbe9c5a5712c7d41"
   },
   "checks": {
     "dotnet": {
-      "passed": 163,
+      "passed": 165,
       "skipped": 0
     },
     "executionAndRegression": {
@@ -36,11 +37,52 @@
     "hostSmoke": {
       "passed": 5
     },
+    "hostSmokeAfterRecreation": {
+      "passed": 5
+    },
     "composeRolesAndPersistence": "passed",
     "containerControls": "passed",
-    "workerMetrics": "passed"
+    "workerMetrics": "passed",
+    "artifactAdapter": "passed"
   },
-  "remoteCi": "branch_upload_approved_run_pending",
+  "remoteCi": "passed",
   "published": false,
-  "deployed": false
+  "deployed": false,
+  "statusCheckedAt": "2026-09-18",
+  "verificationBranch": {
+    "name": "verify/deployment-20260916",
+    "commit": "6a6f7ea5d255d7c04630f444811bcebc48d8530d",
+    "runUrl": "https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35348519327",
+    "conclusion": "success",
+    "imagePublication": "skipped"
+  },
+  "latestMainCi": {
+    "commit": "7747fadbd68496ebf9efb65076c4b9f7ae580e20",
+    "runUrl": "https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35115693503",
+    "conclusion": "failure"
+  },
+  "evidenceScope": "Clean verification-branch commit; local Linux arm64 candidate only. Remote CI passed on the same source commit, but its image was ephemeral and separate. No registry publication or deployment.",
+  "sourceTree": "c285ab3027218c21b43815ebb55be12b474d8fc9",
+  "evidenceDirectory": "/tmp/quality-final-20260918",
+  "evidenceSha256": {
+    "build.log": "55389fa290a89f62b9bb1b0b9a793ef38661cae999ccf05d04682d1c2c421cd4",
+    "build-inputs.json": "1142d0e98a74d73d03d63e3502045ebbb9416f9029d06355c9d6918c1d565e77",
+    "scan.log": "27f7ea0bd7526f5356ac25c3fa6ea6315a0fc0eb2913dbb632339645a1cf5e47",
+    "trivy-final.json": "680b2530f58282c6f53322407139d2652843aa6d77f067dcbbe9c5a5712c7d41",
+    "dotnet.trx": "0aa23bb2b91e637a13aeb6348ed161551ad626ebb550514fcb19c2fd36c72e4e",
+    "dotnet-tests.log": "5e04710c3f1739ac8369dc6ff3fe43cd9c23b45df8b1f3373f6da888403f0599",
+    "execution-tests.log": "373b7723168640402e552cb989882557af09ee664bb4771fabb728cf5214cbda",
+    "host-smoke.log": "72f06cfa407c46401c3a8ad0472ed33a7840c28a8f6144772cef2c0536e42547",
+    "host-smoke-after-recreate.log": "0fcc772ef595adb08a0ff6ae56bb032221bc684cfbfcab515f6a72a0884fa1d2",
+    "container-smoke.log": "28981f1352079875c22bda019781a15145a5d4ad99dde193153b16730ae2f5c3",
+    "container-controls.log": "bbafaf0d55e7975f146b6d3fada4bb7ce1fdb702b3be7850247757a86bfdeef0",
+    "artifacts-tests.log": "5ae664a540c935c5792bf2f1ca27dde4e0daf4f5a6fab9f125d0e325bb435854",
+    "compose-tests.log": "d2a3ecb56b55ac900e1ed33e994493e81a56ee7f68adb31bfaa25c53d461e594",
+    "worker-metrics.log": "4161c13191b4f00fa0d58543f6f31c09fc5e9376f0b5d0b3c79a4e40e97ab274",
+    "image-identity.log": "e3627a2d25de7553fdb3f6e932841fbc4332c39e2ad1c581786d4bf23ba8a74b",
+    "original-image-id.log": "b140b2c8d63af7f3e7a27e56fff8b64b0012d82db9966c83f924f6027b09659d",
+    "compose-cleanup.log": "587e98c1db389c02419b3d4d9728ef1b1381c8438f0b7a639fbf4760547b2d8b",
+    "original-stack-after.log": "c89ebb1dd785d0de7f35ea07420e6a8a0f6e9adae0e2efd188eb134de4fb70de"
+  },
+  "temporaryCredentialsRemoved": true
 }

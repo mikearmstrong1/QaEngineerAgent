@@ -130,4 +130,4 @@ On macOS, if Docker reports that `docker-credential-desktop` cannot be found, ad
 | `scripts/verify-modes.py` | Cross-process API/worker/CLI and restart verification |
 | `Dockerfile`, `docker-compose.yml` | One application image and local dependencies |
 
-See [architecture](docs/architecture.md), [job contract](docs/job-contract.md), and [next steps](docs/next-steps.md). To work in this repository as a saved Codex project, add this folder in Codex; sidebar registration could not be automated in the originating task.
+See [architecture](docs/architecture.md), [job contract](docs/job-contract.md), and [current build plan](docs/next-steps.md). To work in this repository as a saved Codex project, add this folder in Codex; sidebar registration could not be automated in the originating task.
