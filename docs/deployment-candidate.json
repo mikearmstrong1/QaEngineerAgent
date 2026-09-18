@@ -56,12 +56,7 @@
     "conclusion": "success",
     "imagePublication": "skipped"
   },
-  "latestMainCi": {
-    "commit": "7747fadbd68496ebf9efb65076c4b9f7ae580e20",
-    "runUrl": "https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35115693503",
-    "conclusion": "failure"
-  },
-  "evidenceScope": "Clean verification-branch commit; local Linux arm64 candidate only. Remote CI passed on the same source commit, but its image was ephemeral and separate. No registry publication or deployment.",
+  "evidenceScope": "Clean verification-branch commit built as a local Linux arm64 candidate. Merged main has identical image build inputs and passed CI; no registry publication or deployment.",
   "sourceTree": "c285ab3027218c21b43815ebb55be12b474d8fc9",
   "evidenceDirectory": "/tmp/quality-final-20260918",
   "evidenceSha256": {
@@ -84,5 +79,14 @@
     "compose-cleanup.log": "587e98c1db389c02419b3d4d9728ef1b1381c8438f0b7a639fbf4760547b2d8b",
     "original-stack-after.log": "c89ebb1dd785d0de7f35ea07420e6a8a0f6e9adae0e2efd188eb134de4fb70de"
   },
-  "temporaryCredentialsRemoved": true
+  "temporaryCredentialsRemoved": true,
+  "mainMerge": {
+    "commit": "bbaa8b72ab7307c1e97518ce292bb8a138d1720c",
+    "runUrl": "https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35351744151",
+    "conclusion": "success",
+    "buildInputsMatchCandidate": true,
+    "imagePublication": "disabled"
+  },
+  "releaseTargetPlatform": "linux/arm64",
+  "preparedRegistryTag": "ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64"
 }

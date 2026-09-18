@@ -70,8 +70,10 @@ The focused Linux retry/timing checks passed 19 tests with one PostgreSQL skip. 
 
 The verification branch was merged from current main and updated with the correction at `6a6f7ea5d255d7c04630f444811bcebc48d8530d`. [Run 35348519327](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35348519327) passed .NET, Node, browser, Compose, artifact, persistence/recreation, and HIGH/CRITICAL scan steps. Its image-publication step was skipped because the run was on the verification branch.
 
+All prior changes were merged to main at `bbaa8b72ab7307c1e97518ce292bb8a138d1720c`. [Main run 35351744151](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35351744151) passed the complete workflow. The 96 files copied into the image have the same hashes as the locally verified arm64 candidate. Main CI no longer publishes the separate runner-built image.
+
 The September 16 digest `sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81` is historical and was superseded by the September 18 candidate. The passing CI image was ephemeral; the local arm64 image above is the recorded candidate for possible publication.
 
 ## Remaining gates
 
-Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. Main-branch CI now verifies without automatic publication, so prepare an explicit push of the exact local arm64 image. Obtain authorization before publication and deployment, verify the registry-qualified immutable digest and architecture after pushing, and deploy that digest. Preserve the existing running stack until deployment is authorized.
+Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. The exact local image has a prepared GHCR tag and a [checked publication procedure](release-preparation.md). Obtain authorization and registry credentials before publication, verify the registry-qualified immutable digest and architecture after pushing, then obtain separate deployment authorization. Preserve the existing running stack until deployment is authorized.
