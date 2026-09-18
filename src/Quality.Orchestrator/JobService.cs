@@ -99,8 +99,16 @@ public sealed class JobService(IJobStore store, IRequirementSource source, ILlmP
                         operation = operation with { RetryAt = clock.GetUtcNow() + RetryDelay(budget, operation.Attempts) };
                         job = await lease.SaveAsync(WithOperation(job, operation), ct);
                     }
-                    var delay = operation.RetryAt.Value - clock.GetUtcNow();
-                    if (delay > TimeSpan.Zero) await Task.Delay(delay, clock, ct);
+                    // Timers can wake early; recheck the durable boundary and round up
+                    // fractional milliseconds so a short remainder cannot busy-spin.
+                    while (true)
+                    {
+                        var delay = operation.RetryAt.Value - clock.GetUtcNow();
+                        if (delay <= TimeSpan.Zero) break;
+                        var ms = (long)Math.Ceiling(delay.TotalMilliseconds);
+                        if (ms < 1) ms = 1;
+                        await Task.Delay(TimeSpan.FromMilliseconds(ms), clock, ct);
+                    }
                 }
                 // Persist the invocation before making a safe read. Crashes consume an attempt too.
                 operation = operation is null ? Start("Normalize", job.Reference.Source, inputHash)

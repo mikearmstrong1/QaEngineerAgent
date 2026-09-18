@@ -73,3 +73,7 @@ Verified on 2026-09-16:
 The application containers were not rebuilt or deployed. Local Qwen was used for review; no live requirements or cloud planning calls were required.
 
 Explicit [job cancellation](job-cancellation.md) is terminal and revokes ownership. It stops retries and preserves saved results; worker shutdown remains a recoverable interruption.
+
+## Retry deadline precision
+
+Workers recheck the persisted `RetryAt` after every timer wake-up and round positive waits up to whole milliseconds. This prevents an early timer callback from consuming an attempt or calling the source before the saved deadline. The controlled-clock regression covers a wake-up 0.5 ms early, waiting again without spending an attempt, and cancellation during that remainder. The original real-time restart test retains its strict boundary assertion.
