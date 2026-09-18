@@ -1,6 +1,6 @@
 # Deployment verification — 2026-09-18
 
-**Status checked 2026-09-18: local and remote verification passed; release preparation remains.** The corrected verification branch passed its complete GitHub Actions workflow. A fresh local Linux arm64 image from that exact clean commit passed the container, browser, persistence, integration, and HIGH/CRITICAL scan gates. Registry publication and deployment remain pending. See the [current build plan](next-steps.md).
+**Status checked 2026-09-18: verification passed and the Linux arm64 image was published; deployment remains pending.** The corrected verification branch and merged main passed their complete GitHub Actions workflows. The image from the clean verification commit passed the container, browser, persistence, integration, and HIGH/CRITICAL scan gates. Its published GHCR digest and platform match the local candidate, and a digest pull succeeded. See the [current build plan](next-steps.md).
 
 ## Verified candidate
 
@@ -10,7 +10,7 @@ See [machine-readable candidate record](deployment-candidate.json) for the exact
 sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971
 ```
 
-This is a **local Linux arm64 candidate** built from clean commit `6a6f7ea5d255d7c04630f444811bcebc48d8530d`, not a published registry-qualified deployment reference. Do not substitute the tag for an immutable registry deployment digest. No other architecture was verified in this run.
+This Linux arm64 candidate was built from clean commit `6a6f7ea5d255d7c04630f444811bcebc48d8530d`. It was subsequently published at immutable reference `ghcr.io/mikearmstrong1/qaengineeragent@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971`. The remote digest and platform matched, and an arm64 digest pull succeeded. No other architecture was verified in this run.
 
 ## Results
 
@@ -29,7 +29,7 @@ This is a **local Linux arm64 candidate** built from clean commit `6a6f7ea5d255d
 | Cancellation stays terminal after worker start/recreation | Passed |
 | MinIO adapter verification script on alternate endpoint | Passed |
 | Remote GitHub Actions | Updated verification branch passed the complete workflow; image publication skipped |
-| Registry publication / immutable registry deployment reference | Not created |
+| Registry publication / immutable registry deployment reference | Published; digest and arm64 manifest verified |
 | Deployment | Not performed |
 
 Trivy used the official image pinned to `aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969` and scanned OS, Node, and .NET packages in the exact image digest above. The report timestamp and SHA-256 are in the candidate record. This result is limited to the selected severities and vulnerability database at scan time.
@@ -72,8 +72,8 @@ The verification branch was merged from current main and updated with the correc
 
 All prior changes were merged to main at `bbaa8b72ab7307c1e97518ce292bb8a138d1720c`. [Main run 35351744151](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35351744151) passed the complete workflow. The 96 files copied into the image have the same hashes as the locally verified arm64 candidate. Main CI no longer publishes the separate runner-built image.
 
-The September 16 digest `sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81` is historical and was superseded by the September 18 candidate. The passing CI image was ephemeral; the local arm64 image above is the recorded candidate for possible publication.
+The September 16 digest `sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9d95569ac2d9f7d81` is historical and was superseded by the September 18 candidate. The passing CI image was ephemeral; the exact verified arm64 candidate above is now published to GHCR by immutable digest.
 
 ## Remaining gates
 
-Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. The exact local image has a prepared GHCR tag and a [checked publication procedure](release-preparation.md). Obtain authorization and registry credentials before publication, verify the registry-qualified immutable digest and architecture after pushing, then obtain separate deployment authorization. Preserve the existing running stack until deployment is authorized.
+Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. The [published image](release-preparation.md) has an immutable GHCR digest matching the verified local candidate. Check package access and deployment host prerequisites, then obtain separate deployment authorization. Preserve the existing running stack until deployment is authorized.

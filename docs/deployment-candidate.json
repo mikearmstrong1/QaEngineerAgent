@@ -6,7 +6,7 @@
   "localRepoDigests": [
     "quality-system@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971"
   ],
-  "registryDeploymentReference": null,
+  "registryDeploymentReference": "ghcr.io/mikearmstrong1/qaengineeragent@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971",
   "sourceHead": "6a6f7ea5d255d7c04630f444811bcebc48d8530d",
   "sourceHasUncommittedChanges": false,
   "buildInputFingerprintSha256": "bbd6d78af4eeef084c21a1087d213c6456aa8fa3ae456ec58eeeeeed1d0b9f82",
@@ -46,7 +46,7 @@
     "artifactAdapter": "passed"
   },
   "remoteCi": "passed",
-  "published": false,
+  "published": true,
   "deployed": false,
   "statusCheckedAt": "2026-09-18",
   "verificationBranch": {
@@ -56,7 +56,7 @@
     "conclusion": "success",
     "imagePublication": "skipped"
   },
-  "evidenceScope": "Clean verification-branch commit built as a local Linux arm64 candidate. Merged main has identical image build inputs and passed CI; no registry publication or deployment.",
+  "evidenceScope": "Clean verification-branch commit built as a Linux arm64 candidate. Merged main has identical image build inputs and passed CI. The exact candidate was published to GHCR and pulled by immutable digest; deployment has not occurred.",
   "sourceTree": "c285ab3027218c21b43815ebb55be12b474d8fc9",
   "evidenceDirectory": "/tmp/quality-final-20260918",
   "evidenceSha256": {
@@ -88,5 +88,8 @@
     "imagePublication": "disabled"
   },
   "releaseTargetPlatform": "linux/arm64",
-  "preparedRegistryTag": "ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64"
+  "preparedRegistryTag": "ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64",
+  "publishedAt": "2026-09-18T20:31:46Z",
+  "registryManifestPlatform": "linux/arm64",
+  "registryDigestPull": "passed"
 }

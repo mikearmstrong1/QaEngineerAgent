@@ -6,11 +6,12 @@ The deployment target is Linux arm64. The [candidate record](deployment-candidat
 
 - Local source: `quality-system@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971`
 - Target platform: `linux/arm64`
-- Prepared registry tag: `ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64`
-- Publication and deployment: pending authorization
+- Published registry tag: `ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64`
+- Immutable deployment reference: `ghcr.io/mikearmstrong1/qaengineeragent@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971`
+- Publication: complete; deployment: pending separate authorization
 
-Run `bash scripts/publish-verified-arm64.sh --check` to recheck the local manifest, platform, and all recorded build inputs without contacting the registry. The script's `--publish` mode requires a GHCR login, refuses to overwrite an existing tag, pushes the exact local image, compares the pushed manifest digest to the candidate digest, and prints a registry-qualified immutable reference. A failed digest check stops deployment use even if the push completed.
+Before publication, `bash scripts/publish-verified-arm64.sh --check` rechecked the local manifest, platform, and all recorded build inputs. The script's `--publish` mode refused to overwrite an existing tag, pushed the exact local image, compared the pushed manifest digest to the candidate digest, and printed the registry-qualified immutable reference. The published OCI index contains Linux arm64 and a Docker attestation manifest with an unknown platform. A pull by immutable digest with `--platform linux/arm64` passed.
 
-For a local GHCR login, [GitHub documents](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic) a personal access token (classic) with `write:packages` and `docker login ghcr.io -u mikearmstrong1 --password-stdin`. Keep the token outside the repository. Registry access is not yet configured on this host; a read-only lookup returned `denied`. A command-line push may create a package that is not automatically linked to the repository, so check package access after publication.
+For a local GHCR login, [GitHub documents](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic) a personal access token (classic) with `write:packages` and `docker login ghcr.io -u mikearmstrong1 --password-stdin`. Keep the token outside the repository. A command-line push may create a package that is not automatically linked to the repository; package visibility and access should be checked before relying on an unauthenticated pull.
 
-After an authorized publication, record the registry-qualified `ghcr.io/...@sha256:...` reference in the candidate record. Verify the remote manifest and pull it by digest on an arm64 host before deployment. The existing `quality-system` Compose stack remains running until deployment is separately authorized.
+The [candidate record](deployment-candidate.json) now contains the registry-qualified immutable reference. The existing `quality-system` Compose stack remains running until deployment is separately authorized.
