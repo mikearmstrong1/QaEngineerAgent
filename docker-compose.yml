@@ -39,6 +39,10 @@ x-quality: &quality
     Quality__Planning__Mode: ${QUALITY_PLANNING_MODE:-Stub}
     Quality__Planning__Model: ${QUALITY_PLANNING_MODEL:-}
     Quality__Planning__ApiKey: ${OPENAI_API_KEY:-}
+    Quality__Planning__MaxAttempts: ${QUALITY_PLANNING_MAX_ATTEMPTS:-3}
+    Quality__Planning__AttemptTimeoutSeconds: ${QUALITY_PLANNING_ATTEMPT_TIMEOUT_SECONDS:-20}
+    Quality__Planning__TotalTimeoutSeconds: ${QUALITY_PLANNING_TOTAL_TIMEOUT_SECONDS:-75}
+    Quality__Planning__MaxOutputTokens: ${QUALITY_PLANNING_MAX_OUTPUT_TOKENS:-8192}
     ConnectionStrings__Quality: Host=postgres;Database=quality;Username=quality;Password=${POSTGRES_PASSWORD:-quality-local-only}
   depends_on:
     postgres:
