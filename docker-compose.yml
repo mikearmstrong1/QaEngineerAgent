@@ -27,6 +27,15 @@ x-quality: &quality
     Quality__Execution__Workspace: /app
     Quality__Execution__RunDirectory: /data/executions
     Quality__Execution__AllowedOrigins: ${QUALITY_EXECUTION_ALLOWED_ORIGINS:-}
+    Quality__Requirements__Mode: ${QUALITY_REQUIREMENTS_MODE:-Stub}
+    Quality__Requirements__Jira__BaseUrl: ${JIRA_BASE_URL:-}
+    Quality__Requirements__Jira__Email: ${JIRA_EMAIL:-}
+    Quality__Requirements__Jira__Token: ${JIRA_TOKEN:-}
+    Quality__Requirements__Jira__AcceptanceField: ${JIRA_ACCEPTANCE_FIELD:-}
+    Quality__Requirements__Coda__Token: ${CODA_TOKEN:-}
+    Quality__Requirements__Coda__TitleColumn: ${CODA_TITLE_COLUMN:-}
+    Quality__Requirements__Coda__DescriptionColumn: ${CODA_DESCRIPTION_COLUMN:-}
+    Quality__Requirements__Coda__AcceptanceColumn: ${CODA_ACCEPTANCE_COLUMN:-}
     Quality__Planning__Mode: ${QUALITY_PLANNING_MODE:-Stub}
     Quality__Planning__Model: ${QUALITY_PLANNING_MODEL:-}
     Quality__Planning__ApiKey: ${OPENAI_API_KEY:-}
