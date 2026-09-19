@@ -17,6 +17,14 @@ The Jira card layout used by `KAN-4` stores its criteria inside the main descrip
 
 Live verification against `KAN-4` completed without error using temporary local job storage. It imported one non-stub, 4,074-character criterion containing the Range Builder, Chart Behavior, support, drilldown, KBo, dashboard-email, and Smart Banners sections. Provenance records Jira resource `10013`, the live updated revision, field `description`, and locator `/description/content/4`.
 
+The final Linux arm64 release was built from commit `640c6cf4c6ac316f527f9d0b3d64ce76c46c23e2`, scanned with zero HIGH/CRITICAL findings, published, and deployed as:
+
+```text
+ghcr.io/mikearmstrong1/qaengineeragent@sha256:bca9a494209884521698d13c58dfc7561f00dd531455902ef3da1e47fe12b501
+```
+
+The deployed API job `3654630326a6481d8d01825ffa56e236` completed the same live `KAN-4` import with the full 4,074-character criterion and `/description/content/4` provenance. API and worker container identities match the immutable digest, API health passed, all five built-in browser/API smoke tests passed in Remote requirements mode, and no startup errors were present. A pre-deployment PostgreSQL backup was saved at `/private/tmp/quality-pre-jira-ac-20260919.dump` with SHA-256 `98e9785baf8ab4bec4baf19a61a7edd6d819ee3604acb90caf4ae299867b6553`.
+
 The credential remains only in the ignored, mode-600 `.env` file. It is not recorded in source or evidence. Rotate the token after verification because it was supplied through chat.
 
 ## Outstanding live checks

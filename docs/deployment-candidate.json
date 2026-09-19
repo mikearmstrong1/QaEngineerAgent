@@ -103,6 +103,18 @@
     "authentication": "passed",
     "browserSmokePassed": 5,
     "postgresPersistence": "passed",
-    "minioHealth": "passed"
+    "minioHealth": "passed",
+    "supersededBy": "ghcr.io/mikearmstrong1/qaengineeragent@sha256:bca9a494209884521698d13c58dfc7561f00dd531455902ef3da1e47fe12b501"
+  },
+  "currentDeployment": {
+    "deployedAt": "2026-09-19",
+    "sourceCommit": "640c6cf4c6ac316f527f9d0b3d64ce76c46c23e2",
+    "imageReference": "ghcr.io/mikearmstrong1/qaengineeragent@sha256:bca9a494209884521698d13c58dfc7561f00dd531455902ef3da1e47fe12b501",
+    "platform": "linux/arm64",
+    "highCriticalFindings": 0,
+    "jiraDescriptionAcceptanceCriteria": "passed",
+    "liveJiraIssue": "KAN-4",
+    "browserSmokePassed": 5,
+    "databaseBackupSha256": "98e9785baf8ab4bec4baf19a61a7edd6d819ee3604acb90caf4ae299867b6553"
   }
 }
