@@ -1,6 +1,6 @@
 name: quality-system
 x-quality: &quality
-  image: quality-system:local
+  image: ${QUALITY_IMAGE:-quality-system:local}
   build: .
   init: true
   environment: &quality-env

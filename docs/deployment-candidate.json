@@ -47,8 +47,8 @@
   },
   "remoteCi": "passed",
   "published": true,
-  "deployed": false,
-  "statusCheckedAt": "2026-09-18",
+  "deployed": true,
+  "statusCheckedAt": "2026-09-19",
   "verificationBranch": {
     "name": "verify/deployment-20260916",
     "commit": "6a6f7ea5d255d7c04630f444811bcebc48d8530d",
@@ -56,7 +56,7 @@
     "conclusion": "success",
     "imagePublication": "skipped"
   },
-  "evidenceScope": "Clean verification-branch commit built as a Linux arm64 candidate. Merged main has identical image build inputs and passed CI. The exact candidate was published to GHCR and pulled by immutable digest; deployment has not occurred.",
+  "evidenceScope": "Clean verification-branch commit built as a Linux arm64 candidate. Merged main has identical image build inputs and passed CI. The exact candidate was published to GHCR, pulled by immutable digest, and deployed to the local Compose stack.",
   "sourceTree": "c285ab3027218c21b43815ebb55be12b474d8fc9",
   "evidenceDirectory": "/tmp/quality-final-20260918",
   "evidenceSha256": {
@@ -91,5 +91,18 @@
   "preparedRegistryTag": "ghcr.io/mikearmstrong1/qaengineeragent:verified-6a6f7ea-arm64",
   "publishedAt": "2026-09-18T20:31:46Z",
   "registryManifestPlatform": "linux/arm64",
-  "registryDigestPull": "passed"
+  "registryDigestPull": "passed",
+  "deployment": {
+    "deployedAt": "2026-09-19T09:50:45Z",
+    "target": "local Docker Compose, linux/arm64",
+    "services": ["api", "worker"],
+    "apiUrl": "http://127.0.0.1:5080",
+    "imageDigestMatched": true,
+    "databaseBackupSha256": "e246807a4cac9f1da4f1d898c6f9879d3cd5e4bafb1625595767e5b5ba220f1e",
+    "migrations": [1, 2, 3],
+    "authentication": "passed",
+    "browserSmokePassed": 5,
+    "postgresPersistence": "passed",
+    "minioHealth": "passed"
+  }
 }

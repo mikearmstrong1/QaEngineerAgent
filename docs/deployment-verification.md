@@ -1,6 +1,6 @@
 # Deployment verification — 2026-09-18
 
-**Status checked 2026-09-18: verification passed and the Linux arm64 image was published; deployment remains pending.** The corrected verification branch and merged main passed their complete GitHub Actions workflows. The image from the clean verification commit passed the container, browser, persistence, integration, and HIGH/CRITICAL scan gates. Its published GHCR digest and platform match the local candidate, and a digest pull succeeded. See the [current build plan](next-steps.md).
+**Status checked 2026-09-19: verification, publication, and local Compose deployment passed.** The corrected verification branch and merged main passed their complete GitHub Actions workflows. The image from the clean verification commit passed the container, browser, persistence, integration, and HIGH/CRITICAL scan gates. Its published GHCR digest and platform match the local candidate, and a digest pull succeeded. See the [current build plan](next-steps.md).
 
 ## Verified candidate
 
@@ -30,7 +30,7 @@ This Linux arm64 candidate was built from clean commit `6a6f7ea5d255d7c04630f444
 | MinIO adapter verification script on alternate endpoint | Passed |
 | Remote GitHub Actions | Updated verification branch passed the complete workflow; image publication skipped |
 | Registry publication / immutable registry deployment reference | Published; digest and arm64 manifest verified |
-| Deployment | Not performed |
+| Local Compose deployment | Passed: API and worker use the immutable digest; migrations, auth, persistence, MinIO, and five smoke tests passed |
 
 Trivy used the official image pinned to `aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969` and scanned OS, Node, and .NET packages in the exact image digest above. The report timestamp and SHA-256 are in the candidate record. This result is limited to the selected severities and vulnerability database at scan time.
 
@@ -76,4 +76,4 @@ The September 16 digest `sha256:8fc954c620c490f694f90047badb5072837bd7a400fe9cf9
 
 ## Remaining gates
 
-Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. The [published image](release-preparation.md) has an immutable GHCR digest matching the verified local candidate. Check package access and deployment host prerequisites, then obtain separate deployment authorization. Preserve the existing running stack until deployment is authorized.
+Follow the [ordered build plan](next-steps.md): the deployment target is Linux arm64. The [published image](release-preparation.md) has an immutable GHCR digest matching the verified local candidate. The image is deployed to the local Linux arm64 Compose stack. The next planned gate is live-provider verification with configured credentials.
