@@ -13,7 +13,7 @@ public sealed record RequirementSourceOptions(
     string? CodaTitleColumn = null, string? CodaDescriptionColumn = null,
     string? CodaAcceptanceColumn = null);
 
-// Only explicit source fields become criteria; prose in a description is never guessed into requirements.
+// Only explicit source fields or a clearly marked Jira description section become criteria.
 public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOptions options) : IRequirementSource
 {
     public async Task<Requirement> NormalizeAsync(RequirementReference reference, CancellationToken ct)
@@ -48,8 +48,13 @@ public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOp
         var data = root.GetProperty("fields");
         var revision = RequiredText(data, "updated");
         var title = RequiredText(data, "summary");
-        var description = data.TryGetProperty("description", out var body) ? RichText(body) : "";
-        var criteria = field is not null && data.TryGetProperty(field, out var ac) ? Criteria(ac, "jira", resource, revision, field) : [];
+        var hasDescription = data.TryGetProperty("description", out var body);
+        var description = hasDescription ? RichText(body) : "";
+        var criteria = field is not null && data.TryGetProperty(field, out var ac)
+            ? Criteria(ac, "jira", resource, revision, field)
+            : [];
+        if (criteria.Length == 0 && hasDescription)
+            criteria = DescriptionCriteria(body, resource, revision);
         return Build(reference, title, description, revision, criteria);
     }
 
@@ -114,6 +119,32 @@ public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOp
                 Encoding.UTF8.GetBytes($"{provider}:{resource}:{field}:{e.index}")))[..16], e.text,
                 new(provider, resource, revision, field, value.ValueKind == JsonValueKind.Array ? $"/{field}/{e.index}" : $"/{field}")))
             .ToArray();
+    }
+
+    private static AcceptanceCriterion[] DescriptionCriteria(JsonElement description, string resource, string revision)
+    {
+        if (description.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return [];
+        if (description.ValueKind != JsonValueKind.Object
+            || !description.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Array)
+            return [];
+        var nodes = content.EnumerateArray().ToArray();
+        for (var index = 0; index < nodes.Length; index++)
+        {
+            var node = nodes[index];
+            if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty("type", out var kind)
+                || kind.GetString() is not ("paragraph" or "heading")) continue;
+            var marker = RichText(node).Trim();
+            if (!Regex.IsMatch(marker, "^(?:AC|Acceptance Criteria):?$", RegexOptions.IgnoreCase)) continue;
+            var bodyIndex = index + 1;
+            var text = string.Concat(nodes.Skip(bodyIndex).Select(RichText)).Trim();
+            if (text.Length == 0) return [];
+            const string field = "description";
+            var id = "AC-" + Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes($"jira:{resource}:{field}:{bodyIndex}")))[..16];
+            return [new(id, text, new("jira", resource, revision, field, $"/description/content/{bodyIndex}"))];
+        }
+        return [];
     }
 
     private static string RequiredText(JsonElement root, string key)

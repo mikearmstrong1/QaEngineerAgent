@@ -76,6 +76,64 @@ public sealed class RequirementSourceTests
         Assert.Single(result.Risks);
     }
 
+    [Theory]
+    [InlineData("AC")]
+    [InlineData("ac:")]
+    [InlineData("Acceptance Criteria")]
+    [InlineData("acceptance criteria:")]
+    public async Task JiraImportsMarkedDescriptionAcceptanceSection(string marker)
+    {
+        const string template = """
+            {"id":"10013","key":"KAN-4","fields":{"summary":"Add call duration group","updated":"2026-09-19T07:00:59.199-0400","description":{"type":"doc","version":1,"content":[
+              {"type":"paragraph","content":[{"type":"text","text":"Context"}]},
+              {"type":"paragraph","content":[{"type":"text","text":"Continuous fields require range grouping."}]},
+              {"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"MARKER"}]},
+              {"type":"paragraph","content":[{"type":"text","text":"Add Call Duration to Group By."}]},
+              {"type":"bulletList","content":[
+                {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"0–2 minutes"}]}]},
+                {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"2–5 minutes"}]}]}
+              ]},
+              {"type":"paragraph","content":[{"type":"text","text":"Chart Behavior"}]},
+              {"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Sort ranges in ascending order."}]}]}]}
+            ]},"customfield_10010":null}}
+            """;
+        var fixture = template.Replace("MARKER", marker);
+        using var http = new HttpClient(new Handler(fixture));
+        var result = await new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "KAN-4"), default);
+
+        var criterion = Assert.Single(result.AcceptanceCriteria);
+        Assert.Contains("Add Call Duration to Group By.", criterion.Description);
+        Assert.Contains("0–2 minutes", criterion.Description);
+        Assert.Contains("Chart Behavior", criterion.Description);
+        Assert.DoesNotContain("Continuous fields require range grouping.", criterion.Description);
+        Assert.Equal("description", criterion.Provenance!.Field);
+        Assert.Equal("/description/content/3", criterion.Provenance.Locator);
+        Assert.Empty(result.Risks);
+    }
+
+    [Fact]
+    public async Task JiraCustomAcceptanceFieldTakesPriorityOverDescriptionSection()
+    {
+        var fixture = Fixture("jira").Replace("Allow account access.", "AC\\nDescription criterion must not replace the configured field.");
+        using var http = new HttpClient(new Handler(fixture));
+        var result = await new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "AUTH-1427"), default);
+        var criterion = Assert.Single(result.AcceptanceCriteria);
+        Assert.Equal("Valid credentials grant access.", criterion.Description);
+        Assert.Equal("customfield_10010", criterion.Provenance!.Field);
+    }
+
+    [Fact]
+    public async Task JiraEmptyDescriptionAcceptanceSectionRemainsMissing()
+    {
+        const string fixture = """
+            {"id":"10013","key":"KAN-4","fields":{"summary":"Empty AC","updated":"2026-09-19T07:00:59.199-0400","description":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"AC"}]},{"type":"paragraph","content":[]}]},"customfield_10010":null}}
+            """;
+        using var http = new HttpClient(new Handler(fixture));
+        var result = await new RemoteRequirementSource(http, Options).NormalizeAsync(new("jira", "KAN-4"), default);
+        Assert.Empty(result.AcceptanceCriteria);
+        Assert.Single(result.Risks);
+    }
+
     [Fact]
     public async Task ImportedRequirementAndAuditSurvivePersistence()
     {

@@ -11,6 +11,12 @@ The published Linux arm64 image was run in one-shot mode against the `KAN-2` Sto
 - Criterion provenance records provider `jira`, Jira resource ID `10011`, Jira's updated revision, field `customfield_10045`, and locator `/customfield_10045`.
 - The criterion originated from the project Story field `Acceptance Criteria`, populated using Atlassian Document Format.
 
+### Description-embedded criteria
+
+The Jira card layout used by `KAN-4` stores its criteria inside the main description rather than a separate field. The adapter now recognizes an explicit top-level `AC`, `AC:`, `Acceptance Criteria`, or `Acceptance Criteria:` marker when the configured custom field is absent or empty. It keeps all following top-level ADF blocks together as one criterion while retaining the full card description separately.
+
+Live verification against `KAN-4` completed without error using temporary local job storage. It imported one non-stub, 4,074-character criterion containing the Range Builder, Chart Behavior, support, drilldown, KBo, dashboard-email, and Smart Banners sections. Provenance records Jira resource `10013`, the live updated revision, field `description`, and locator `/description/content/4`.
+
 The credential remains only in the ignored, mode-600 `.env` file. It is not recorded in source or evidence. Rotate the token after verification because it was supplied through chat.
 
 ## Outstanding live checks
