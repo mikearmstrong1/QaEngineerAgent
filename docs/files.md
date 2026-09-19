@@ -2,6 +2,7 @@
 
 ```text
 .dockerignore
+AGENTS.md
 .env.example
 .github/workflows/ci.yml
 .gitignore
@@ -11,6 +12,7 @@ QualitySystem.sln
 README.md
 docker-compose.yml
 docs/architecture.md
+docs/command-center.md
 docs/files.md
 docs/job-contract.md
 docs/next-steps.md
@@ -47,6 +49,12 @@ src/Quality.Api/JobWorker.cs
 src/Quality.Api/Program.cs
 src/Quality.Api/Quality.Api.csproj
 src/Quality.Api/packages.lock.json
+src/Quality.CommandCenter/Program.cs
+src/Quality.CommandCenter/Quality.CommandCenter.csproj
+src/Quality.CommandCenter/packages.lock.json
+src/Quality.CommandCenter/wwwroot/app.css
+src/Quality.CommandCenter/wwwroot/app.js
+src/Quality.CommandCenter/wwwroot/index.html
 src/Quality.Domain/Models.cs
 src/Quality.Domain/Quality.Domain.csproj
 src/Quality.Domain/packages.lock.json

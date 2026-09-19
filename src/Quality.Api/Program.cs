@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text;
 using Npgsql;
 using Quality.Api;
 using Quality.Domain;
@@ -188,6 +189,20 @@ try
         catch (IdempotencyConflictException) { return Results.Conflict(new { error = "idempotency_key_conflict" }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["reference"] = [ex.Message] }); }
     });
+    app.MapGet("/jobs", async (int? limit, string? cursor, CancellationToken ct) =>
+    {
+        var size = limit ?? 20;
+        if (size is < 1 or > 50) return Results.BadRequest(new { error = "limit_must_be_1_to_50" });
+        try
+        {
+            var (beforeCreatedAt, beforeId) = DecodeCursor(cursor);
+            var jobsPage = await jobs.ListAsync(size + 1, beforeCreatedAt, beforeId, ct);
+            var items = jobsPage.Take(size).ToArray();
+            var nextCursor = jobsPage.Count > size && items.Length > 0 ? EncodeCursor(items[^1]) : null;
+            return Results.Ok(new { items, nextCursor });
+        }
+        catch (ArgumentException ex) { return Results.BadRequest(new { error = "invalid_job_cursor", detail = ex.Message }); }
+    });
     app.MapPost("/jobs/{id}/cancel", async (string id, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
@@ -233,6 +248,28 @@ static Dictionary<string, string> ParseOptions(string[] values, string[] allowed
             throw new ArgumentException($"Unknown or duplicate option: {values[i]}");
     if (allowed.Any(a => !parsed.ContainsKey(a))) throw new ArgumentException($"Required options: {string.Join(", ", allowed)}");
     return parsed;
+}
+
+static string EncodeCursor(QualityJob job)
+    => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{job.CreatedAt.UtcTicks}:{job.Id}"))
+        .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+static (DateTimeOffset? CreatedAt, string? Id) DecodeCursor(string? cursor)
+{
+    if (string.IsNullOrEmpty(cursor)) return (null, null);
+    try
+    {
+        var encoded = cursor.Replace('-', '+').Replace('_', '/');
+        encoded = encoded.PadRight(encoded.Length + (4 - encoded.Length % 4) % 4, '=');
+        var parts = Encoding.UTF8.GetString(Convert.FromBase64String(encoded)).Split(':', 2);
+        if (parts.Length != 2 || !long.TryParse(parts[0], out var ticks) ||
+            !Guid.TryParseExact(parts[1], "N", out _)) throw new FormatException();
+        return (new DateTimeOffset(ticks, TimeSpan.Zero), parts[1]);
+    }
+    catch (Exception ex) when (ex is FormatException or ArgumentOutOfRangeException)
+    {
+        throw new ArgumentException("cursor is malformed");
+    }
 }
 
 static void ConfigureServices(IServiceCollection services, IConfiguration configuration, bool runWorker)

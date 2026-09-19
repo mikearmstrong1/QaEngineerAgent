@@ -54,6 +54,27 @@ x-quality: &quality
   shm_size: 1gb
 
 services:
+  command-center:
+    image: ${QUALITY_IMAGE:-quality-system:local}
+    build: .
+    init: true
+    entrypoint: ["dotnet", "/app/command-center/Quality.CommandCenter.dll"]
+    command: []
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      Quality__CommandCenter__ApiUrl: http://api:8080
+      Quality__CommandCenter__ApiKey: ${QUALITY_API_KEY:-}
+    ports: ["127.0.0.1:5081:8080"]
+    read_only: true
+    tmpfs: ["/tmp:mode=1777"]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
   api:
     <<: *quality
     command: ["api"]

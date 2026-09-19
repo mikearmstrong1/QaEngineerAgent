@@ -66,6 +66,22 @@ public sealed class JobTests : IDisposable
         Assert.Single(claims, j => j is not null);
     }
     [Fact]
+    public async Task ListsNewestJobsWithStableCursorBoundary()
+    {
+        var first = await Service().SubmitAsync(new(new("stub", "first")), default);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var second = await Service().SubmitAsync(new(new("stub", "second")), default);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var third = await Service().SubmitAsync(new(new("stub", "third")), default);
+
+        var page = await Service().ListAsync(2, null, null, default);
+        Assert.Equal([third.Id, second.Id], page.Select(job => job.Id));
+        var next = await Service().ListAsync(2, page[^1].CreatedAt, page[^1].Id, default);
+        Assert.Equal(first.Id, Assert.Single(next).Id);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Service().ListAsync(0, null, null, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => Service().ListAsync(2, page[^1].CreatedAt, null, default));
+    }
+    [Fact]
     public async Task ExpiredClaimCanBeRecoveredAndOldOwnerCannotSave()
     {
         var job = await Service().SubmitAsync(Request, default);

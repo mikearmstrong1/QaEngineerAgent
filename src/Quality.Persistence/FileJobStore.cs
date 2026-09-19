@@ -30,6 +30,17 @@ public sealed class FileJobStore(string directory, TimeProvider clock) : IJobSto
         using var gate = await LockAsync(ct);
         return await ReadAsync(id, ct);
     }
+    public async Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct)
+    {
+        using var gate = await LockAsync(ct);
+        var jobs = new List<QualityJob>();
+        foreach (var file in Directory.EnumerateFiles(root, "*.json"))
+            if (await ReadAsync(Path.GetFileNameWithoutExtension(file), ct) is { } job) jobs.Add(job);
+        return jobs.Where(job => beforeCreatedAt is null || job.CreatedAt < beforeCreatedAt ||
+                job.CreatedAt == beforeCreatedAt && string.CompareOrdinal(job.Id, beforeId) < 0)
+            .OrderByDescending(job => job.CreatedAt).ThenByDescending(job => job.Id)
+            .Take(limit).ToArray();
+    }
     public async Task<QualityJob?> CancelAsync(string id, CancellationToken ct)
     {
         using var gate = await LockAsync(ct);

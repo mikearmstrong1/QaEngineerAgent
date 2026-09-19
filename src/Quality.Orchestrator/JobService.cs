@@ -7,6 +7,13 @@ public sealed class JobService(IJobStore store, IRequirementSource source, ILlmP
 {
     public const string PromptVersion = PlanningPrompt.Version;
     public Task<QualityJob?> GetAsync(string id, CancellationToken ct) => store.GetAsync(id, ct);
+    public Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct)
+    {
+        if (limit is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100");
+        if (beforeCreatedAt is null != (beforeId is null)) throw new ArgumentException("cursor timestamp and id must be supplied together");
+        if (beforeId is not null && !Guid.TryParseExact(beforeId, "N", out _)) throw new ArgumentException("Invalid cursor job id");
+        return store.ListAsync(limit, beforeCreatedAt, beforeId, ct);
+    }
     public Task<QualityJob?> CancelAsync(string id, CancellationToken ct)
     {
         if (!Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("Invalid job id");

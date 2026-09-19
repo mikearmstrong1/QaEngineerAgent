@@ -12,6 +12,8 @@ public sealed class MeteredJobStore(IJobStore inner, JobMetrics metrics) : IJobS
             result => result.Reference != job.Reference ? MetricOutcome.Conflict : result.Id == job.Id ? MetricOutcome.Success : MetricOutcome.Replayed);
     public Task<QualityJob?> GetAsync(string id, CancellationToken ct)
         => metrics.TrackAsync(MetricOperation.Read, () => inner.GetAsync(id, ct), result => result is null ? MetricOutcome.Missing : MetricOutcome.Success);
+    public Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct)
+        => metrics.TrackAsync(MetricOperation.Read, () => inner.ListAsync(limit, beforeCreatedAt, beforeId, ct));
     public Task<QualityJob?> CancelAsync(string id, CancellationToken ct)
         => metrics.TrackAsync(MetricOperation.Cancel, () => inner.CancelAsync(id, ct),
             result => result is null ? MetricOutcome.Missing : result.Status == JobStatus.Cancelled ? MetricOutcome.Cancelled : MetricOutcome.Conflict);

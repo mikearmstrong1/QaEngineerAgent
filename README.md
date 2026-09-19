@@ -57,7 +57,9 @@ docker compose logs worker
 docker compose down
 ```
 
-API, worker, and one-shot use the **same image**, changing only the command and environment. The image contains .NET runtime, Node, Playwright and browsers, schemas, prompts, and application code; startup performs no installation or source generation. Compose uses PostgreSQL by default, with named database and MinIO volumes. `docker compose down` preserves them; `down -v` deletes them.
+Open the [Quality Command Center](http://127.0.0.1:5081) to submit Jira issues and review live planning results. It is an additional interface; all API and terminal commands remain available. See [Command Center architecture and security](docs/command-center.md).
+
+API, worker, one-shot, and Command Center use the **same image**, changing only the entrypoint or command and environment. The image contains .NET runtime, Node, Playwright and browsers, schemas, prompts, and application code; startup performs no installation or source generation. Compose uses PostgreSQL by default, with named database and MinIO volumes. `docker compose down` preserves them; `down -v` deletes them.
 
 MinIO uses the official Quay image (the former Docker Hub reference failed to pull). MinIO runs at [console](http://127.0.0.1:9001) / port 9000. Enable the [MinIO artifact adapter](docs/minio-artifacts.md) to upload execution evidence with checksums and retention. Initialize its dedicated bucket explicitly with `init-artifacts`; default Local mode makes no uploads. Development credentials are in `.env.example`. Ports bind to loopback. The example explicitly enables anonymous local development. For authenticated access, configure an API key as described in [API authentication](docs/api-authentication.md).
 

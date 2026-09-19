@@ -31,6 +31,7 @@ public interface IJobStore
     Task CreateAsync(QualityJob job, CancellationToken ct);
     Task<QualityJob> CreateOrGetAsync(QualityJob job, CancellationToken ct);
     Task<QualityJob?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct);
     Task<QualityJob?> CancelAsync(string id, CancellationToken ct);
     // A claim consumes a worker attempt atomically; exhaustion returns a persisted terminal job.
     Task<QualityJob?> ClaimAsync(string? id, TimeSpan lease, CancellationToken ct);

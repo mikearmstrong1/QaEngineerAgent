@@ -242,6 +242,8 @@ public sealed class LeaseRenewalTests
         public Task CreateAsync(QualityJob job, CancellationToken ct) => inner.CreateAsync(job, ct);
         public Task<QualityJob> CreateOrGetAsync(QualityJob job, CancellationToken ct) => inner.CreateOrGetAsync(job, ct);
         public Task<QualityJob?> GetAsync(string id, CancellationToken ct) => inner.GetAsync(id, ct);
+        public Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct)
+            => inner.ListAsync(limit, beforeCreatedAt, beforeId, ct);
         public Task<QualityJob?> CancelAsync(string id, CancellationToken ct) => inner.CancelAsync(id, ct);
         public async Task<QualityJob?> ClaimAsync(string? id, TimeSpan lease, CancellationToken ct)
         {

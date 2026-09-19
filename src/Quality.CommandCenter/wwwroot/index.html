@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Quality Command Center</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">Q</span><div><strong>Quality Command Center</strong><small>Requirement to reviewed test plan</small></div></div>
+    <div class="service-state"><span id="health-dot" class="dot pending"></span><span id="health-text">Checking services</span></div>
+  </header>
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">PLANNING WORKSPACE</p><h1>Turn Jira acceptance criteria into a reviewable test plan.</h1><p class="lede">Submit a story, follow provider progress, and inspect every generated test and coverage gap. Existing CLI commands remain available for automation and terminal workflows.</p></div>
+      <form id="submit-form" class="submit-card">
+        <label for="jira-key">Jira issue key</label>
+        <div class="input-row"><input id="jira-key" name="jiraKey" placeholder="KAN-4" autocomplete="off" required><button type="submit">Generate plan</button></div>
+        <p id="submit-message" class="form-message">Uses the configured Jira and OpenAI providers.</p>
+      </form>
+    </section>
+    <section class="workspace">
+      <aside class="jobs-panel">
+        <div class="section-heading"><div><p class="eyebrow">ACTIVITY</p><h2>Recent jobs</h2></div><button id="refresh" class="icon-button" aria-label="Refresh jobs">↻</button></div>
+        <div id="jobs" class="jobs-list"><div class="skeleton"></div><div class="skeleton"></div></div>
+        <button id="load-more" class="secondary hidden">Load older jobs</button>
+      </aside>
+      <section id="detail" class="detail-panel empty-state">
+        <div class="empty-icon">⌁</div><h2>Select a job</h2><p>Requirement details, generated tests, traceability, assumptions, and gaps will appear here.</p>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

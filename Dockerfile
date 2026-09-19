@@ -8,6 +8,7 @@ COPY prompts ./prompts
 COPY schemas ./schemas
 RUN dotnet restore QualitySystem.sln --locked-mode
 RUN dotnet publish src/Quality.Api/Quality.Api.csproj -c Release --no-restore -o /publish /p:UseAppHost=false
+RUN dotnet publish src/Quality.CommandCenter/Quality.CommandCenter.csproj -c Release --no-restore -o /command-center /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-noble AS dotnet-runtime
 FROM mcr.microsoft.com/playwright:v1.63.0-noble AS prepared
@@ -37,6 +38,7 @@ COPY package.json package-lock.json ./
 COPY playwright ./playwright
 RUN npm ci && npm run build && rm -rf /root/.npm && mkdir -p /data/jobs /data/executions && chown -R pwuser:pwuser /data
 COPY --from=dotnet-build /publish ./service
+COPY --from=dotnet-build /command-center ./command-center
 COPY schemas ./schemas
 COPY prompts ./prompts
 USER pwuser

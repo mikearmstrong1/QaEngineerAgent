@@ -47,6 +47,21 @@ public sealed class PostgresJobStore(NpgsqlDataSource dataSource) : IJobStore
         command.Parameters.AddWithValue(id);
         return await command.ExecuteScalarAsync(ct) is string json ? Deserialize(json) : null;
     }
+    public async Task<IReadOnlyList<QualityJob>> ListAsync(int limit, DateTimeOffset? beforeCreatedAt, string? beforeId, CancellationToken ct)
+    {
+        await using var command = dataSource.CreateCommand("""
+            SELECT document::text FROM quality_jobs
+            WHERE ($2::timestamptz IS NULL OR created_at < $2 OR (created_at = $2 AND id < $3))
+            ORDER BY created_at DESC, id DESC LIMIT $1
+            """);
+        command.Parameters.AddWithValue(limit);
+        command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.TimestampTz, Value = (object?)beforeCreatedAt ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Text, Value = (object?)beforeId ?? DBNull.Value });
+        var jobs = new List<QualityJob>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) jobs.Add(Deserialize(reader.GetString(0)));
+        return jobs;
+    }
     public async Task<QualityJob?> CancelAsync(string id, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
