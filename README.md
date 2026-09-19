@@ -1,135 +1,317 @@
 # Engineering Quality System
 
-Portable requirement-to-test planning with .NET, TypeScript, and Playwright. The service accepts a requirement reference, imports it through optional read-only Jira/Coda adapters (or creates a synthetic requirement in default Stub mode), creates a structured test plan through optional OpenAI planning (or a synthetic plan in default Stub mode), persists job transitions, and returns the result over HTTP or the CLI. `Completed` means planning completed; it does **not** mean application tests passed. Operational [metrics](docs/metrics.md) expose process activity and timings. Jobs support [durable cancellation](docs/job-cancellation.md) through HTTP and CLI. Jobs have [durable retry and processing-time limits](docs/retry-budgets.md). Active workers [renew job leases](docs/lease-renewal.md) while processing. Interrupted jobs use [provider-operation recovery](docs/provider-recovery.md) to reuse saved results and flag uncertain planning calls for review. Use [reviewed Playwright execution](docs/playwright-execution.md) to run tests and retrieve separate results, then [propose regression coverage](docs/regression-promotion.md) from passing runs.
+Turn a Jira story into a structured, reviewable test plan. The system imports the story, sends its acceptance criteria to the configured planner, saves the result, and shows it in a local web app.
 
-## Quick start: native
+> **Completed means the test plan was generated. It does not mean the application was tested.** Running browser tests is a separate, reviewed step.
 
-Requirements: .NET SDK 10.0.401 (or a later 10.0.4xx patch), Node.js 20+, npm. The default file store requires no other services.
+## The easiest way to use it
+
+You need:
+
+- Docker Desktop, with Docker Compose v2
+- A Jira Cloud account and API token
+- An OpenAI API key
+- This repository checked out locally
+
+Run every command below from the repository root.
+
+### 1. Create your local settings file
+
+```sh
+cp .env.example .env
+chmod 600 .env
+```
+
+Open `.env` and set these values:
+
+```dotenv
+# Protect the local API. Use a long random value.
+QUALITY_API_ALLOW_ANONYMOUS=false
+QUALITY_API_KEY=YOUR_RANDOM_LOCAL_API_KEY
+
+# Import real Jira stories.
+QUALITY_REQUIREMENTS_MODE=Remote
+JIRA_BASE_URL=https://YOUR_SITE.atlassian.net
+JIRA_EMAIL=YOUR_JIRA_EMAIL
+JIRA_TOKEN=YOUR_JIRA_API_TOKEN
+JIRA_ACCEPTANCE_FIELD=YOUR_OPTIONAL_CUSTOM_FIELD_ID
+
+# Generate plans with OpenAI.
+QUALITY_PLANNING_MODE=OpenAI
+QUALITY_PLANNING_MODEL=gpt-5.6-terra
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+QUALITY_PLANNING_MAX_ATTEMPTS=1
+QUALITY_PLANNING_ATTEMPT_TIMEOUT_SECONDS=60
+QUALITY_PLANNING_TOTAL_TIMEOUT_SECONDS=75
+```
+
+`JIRA_ACCEPTANCE_FIELD` is optional when the Jira description contains a top-level `AC` or `Acceptance Criteria` heading. Keep `.env` private; Git ignores it.
+
+### 2. Build and start everything
+
+```sh
+docker compose build api
+docker compose up --no-build -d --wait
+```
+
+The first build can take several minutes. A successful start reports healthy containers.
+
+### 3. Open the Command Center
+
+Open [http://127.0.0.1:5081](http://127.0.0.1:5081).
+
+You should see **Services ready** in the upper-right corner.
+
+### 4. Generate a plan
+
+1. Enter a Jira key, such as `KAN-4`.
+2. Select **Generate plan**.
+3. Wait while the job moves through `Queued`, `Normalizing`, and `Planning`.
+4. Select the completed job from **Recent jobs**.
+
+### 5. Review the result
+
+Check each section before using the plan:
+
+- **Acceptance criteria:** Confirm the correct Jira content was imported.
+- **Proposed tests:** Review priorities, categories, steps, and expected results.
+- **Assumptions:** Confirm the planner did not rely on a false assumption.
+- **Coverage gaps:** Decide whether the Jira story needs more detail.
+- **Model metadata:** Confirm the plan came from the expected provider and model.
+
+The Command Center creates and reviews plans. It does not automatically run tests or change source code.
+
+## Everyday commands
+
+### Check service status
+
+```sh
+docker compose ps
+curl http://127.0.0.1:5080/ready
+```
+
+### Watch the worker
+
+```sh
+docker compose logs -f worker
+```
+
+Press `Ctrl+C` to stop watching. The services keep running.
+
+### Restart after editing `.env`
+
+```sh
+docker compose up --no-build --force-recreate -d --wait api worker command-center
+```
+
+### Stop the system
+
+```sh
+docker compose down
+```
+
+This preserves PostgreSQL, MinIO, and execution volumes. `docker compose down -v` permanently deletes those volumes.
+
+## Use the terminal instead of the web app
+
+The web app is optional. Every workflow remains available from the terminal.
+
+### Submit a Jira story and wait for its plan
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  run --source jira --reference KAN-4
+```
+
+The command prints the completed job as JSON. Copy its 32-character `id` value.
+
+### Get a saved job
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  get --id JOB_ID
+```
+
+### Cancel an active job
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  cancel --id JOB_ID
+```
+
+### List jobs through the HTTP API
+
+The Command Center uses the authenticated API on port 5080. `GET /jobs` returns newest jobs first:
+
+```sh
+curl 'http://127.0.0.1:5080/jobs?limit=20' \
+  -H "Authorization: Bearer YOUR_RANDOM_LOCAL_API_KEY"
+```
+
+Pass the returned `nextCursor` as `?limit=20&cursor=NEXT_CURSOR` to load older jobs.
+
+## Run a reviewed browser test
+
+Planning does not create runnable selectors automatically. A person must add concrete actions and assertions to an execution manifest.
+
+### 1. Choose the target application
+
+The example below assumes the application is running on your Mac at port 3000. Containers reach it as `host.docker.internal`:
+
+```sh
+export TARGET_ORIGIN=http://host.docker.internal:3000
+```
+
+### 2. Create a draft manifest
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  prepare-execution --job JOB_ID --target "$TARGET_ORIGIN" > execution.json
+```
+
+### 3. Add reviewed steps
+
+Open `execution.json`. Keep the tests you want to run and add steps like these:
+
+```json
+{
+  "testCaseId": "TC-1",
+  "steps": [
+    { "action": "goto", "selector": null, "value": "/" },
+    { "action": "click", "selector": "button[type=submit]", "value": null },
+    { "action": "expectText", "selector": "h1", "value": "Welcome" }
+  ]
+}
+```
+
+Supported actions are `goto`, `click`, `fill`, `expectText`, `expectVisible`, and `expectUrl`. Every selected test needs at least one assertion.
+
+### 4. Hash the exact reviewed file
+
+```sh
+export REVIEWED_SHA256=$(shasum -a 256 execution.json | awk '{print $1}')
+```
+
+If you edit `execution.json` again, calculate a new hash and review it again.
+
+### 5. Execute it
+
+```sh
+docker compose --profile cli run --rm \
+  -e Quality__Execution__AllowedOrigins="$TARGET_ORIGIN" \
+  -v "$PWD/execution.json:/work/execution.json:ro" \
+  oneshot execute --job JOB_ID \
+  --manifest /work/execution.json \
+  --sha256 "$REVIEWED_SHA256"
+```
+
+Copy the returned `RUN_ID`.
+
+### 6. Read the result
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  get-run --id RUN_ID
+```
+
+Execution status is separate from planning status. A run may be `Passed`, `Failed`, `TimedOut`, `Cancelled`, or `InfrastructureFailed`.
+
+For network restrictions, evidence files, and Linux target addressing, read [reviewed Playwright execution](docs/playwright-execution.md).
+
+## Optional tools
+
+### Store evidence in MinIO
+
+Set this in `.env`:
+
+```dotenv
+QUALITY_ARTIFACTS_MODE=MinIO
+QUALITY_ARTIFACTS_BUCKET=quality-artifacts
+QUALITY_ARTIFACTS_RETENTION_DAYS=30
+```
+
+Reload the services and initialize the bucket once:
+
+```sh
+docker compose up --no-build --force-recreate -d --wait api worker
+docker compose --profile cli run --rm oneshot init-artifacts
+```
+
+Future executions upload evidence automatically. Retry an upload with:
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  publish-artifacts --run RUN_ID
+```
+
+Open the MinIO console at [http://127.0.0.1:9001](http://127.0.0.1:9001). See [artifact storage](docs/minio-artifacts.md) for retention and security details.
+
+### Classify a failed run
+
+Review the screenshots, trace, and logs first. Then record the conclusion:
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  classify-failure --run RUN_ID \
+  --classification ApplicationFailure \
+  --reason "Confirmed against the acceptance criterion"
+```
+
+Allowed review classifications are `ApplicationFailure`, `TestFailure`, and `InfrastructureFailure`.
+
+### Propose a passing test as regression coverage
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  promote-regression --job JOB_ID --run RUN_ID \
+  --sha256 "$REVIEWED_SHA256"
+```
+
+This creates a reviewable patch. It does not modify the working repository, push a branch, or open a pull request. Follow [reviewed regression promotion](docs/regression-promotion.md) to inspect and apply the patch.
+
+## Verify the installation
+
+Run the checks inside the same application image:
+
+```sh
+python3 scripts/verify-compose.py
+docker compose --profile test run --rm smoke
+```
+
+For repository development, install .NET 10.0.401+, Node.js 20+, npm dependencies, and Chromium, then run:
 
 ```sh
 dotnet restore QualitySystem.sln --locked-mode
 dotnet build QualitySystem.sln -c Release --no-restore
+dotnet test QualitySystem.sln -c Release --no-build
 npm ci
-npm run build
-npx playwright install chromium
-
-dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll run --source jira --reference AUTH-1427
-```
-
-The command prints one job JSON document to stdout and persists it in `data/jobs`. Logs/errors go to stderr. To inspect it from a new process:
-
-```sh
-dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll get --id <job-id>
-```
-
-Run API and worker in **two terminals from the repository root**, sharing the default `data/jobs` directory:
-
-```sh
-# Terminal 1
-Quality__Api__AllowAnonymous=true ASPNETCORE_URLS=http://127.0.0.1:5080 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll api
-# Terminal 2; worker has no HTTP listener
-dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll worker
-```
-
-For a single-process development API, set `Quality__RunWorker=true` on the API command. Open [local service](http://127.0.0.1:5080).
-
-```sh
-curl -i http://127.0.0.1:5080/jobs \
-  -H 'Content-Type: application/json' \
-  --data '{"reference":{"source":"jira","id":"AUTH-1427"}}'
-curl http://127.0.0.1:5080/jobs/<job-id>
-```
-
-`POST /jobs` returns `202` and a `Location` header. Supply an optional `Idempotency-Key` header to safely retry a submission; see [idempotent submissions](docs/idempotent-submissions.md) for API, CLI, and client usage. Poll that URL for `Completed`, `Failed`, or `Cancelled`. The default Stub mode does not contact external providers. Enable [real requirements ingestion](docs/requirements-ingestion.md) and [structured planning](docs/structured-planning.md) to import source content and produce validated plans.
-
-## Quick start: containers
-
-Requires Docker Engine/Desktop and Docker Compose v2 or newer.
-
-```sh
-cp .env.example .env
-docker compose build api
-docker compose up --no-build -d --wait
-curl http://127.0.0.1:5080/ready
-docker compose --profile cli run --rm oneshot run --source jira --reference AUTH-1427
-docker compose --profile cli run --rm oneshot get --id <job-id>
-docker compose logs worker
-docker compose down
-```
-
-Open the [Quality Command Center](http://127.0.0.1:5081) to submit Jira issues and review live planning results. It is an additional interface; all API and terminal commands remain available. See [Command Center architecture and security](docs/command-center.md).
-
-API, worker, one-shot, and Command Center use the **same image**, changing only the entrypoint or command and environment. The image contains .NET runtime, Node, Playwright and browsers, schemas, prompts, and application code; startup performs no installation or source generation. Compose uses PostgreSQL by default, with named database and MinIO volumes. `docker compose down` preserves them; `down -v` deletes them.
-
-MinIO uses the official Quay image (the former Docker Hub reference failed to pull). MinIO runs at [console](http://127.0.0.1:9001) / port 9000. Enable the [MinIO artifact adapter](docs/minio-artifacts.md) to upload execution evidence with checksums and retention. Initialize its dedicated bucket explicitly with `init-artifacts`; default Local mode makes no uploads. Development credentials are in `.env.example`. Ports bind to loopback. The example explicitly enables anonymous local development. For authenticated access, configure an API key as described in [API authentication](docs/api-authentication.md).
-
-To use only container dependencies with native .NET:
-
-```sh
-docker compose up -d postgres minio
-export Quality__Store=Postgres
-export ConnectionStrings__Quality='Host=127.0.0.1;Port=54329;Database=quality;Username=quality;Password=quality-local-only'
-# Run the API, worker or one-shot commands above with these variables.
-```
-
-## Verification
-
-```sh
-dotnet test QualitySystem.sln -c Release
 npm run build
 npm test
 npm run test:execution
-python3 scripts/verify-modes.py
 ```
 
-Playwright starts a dedicated local API on port 5080 with the file store and an embedded worker; set `QUALITY_SMOKE_PORT` to a free port if another service is running there. Set `QUALITY_BASE_URL=http://127.0.0.1:5080` to test an already-running stack instead (it must have a worker). A Release .NET build is required before the default smoke test. On Linux install browser OS dependencies with `npx playwright install --with-deps chromium`.
+## Troubleshooting
 
-The PostgreSQL integration test is explicitly skipped unless given a dedicated test database:
+| Problem | What to do |
+| --- | --- |
+| Command Center says `API unavailable` | Run `docker compose ps`, then `docker compose logs api`. |
+| A new token or key is ignored | Recreate the services with the restart command above. |
+| Jira returns 401 or 403 | Check `JIRA_BASE_URL`, `JIRA_EMAIL`, and the Jira API token in `.env`. |
+| Planning ends with `planning_timeout` | Use one 60-second attempt as shown in the `.env` example above. |
+| Planning returns no tests | Review acceptance criteria and coverage gaps; missing or synthetic criteria intentionally produce a gap report. |
+| Execution rejects the target | Make `Quality__Execution__AllowedOrigins` exactly match the manifest origin, including its port. |
+| Docker cannot find `docker-credential-desktop` on macOS | Add `/Applications/Docker.app/Contents/Resources/bin` to `PATH`. |
+| Port 5080 or 5081 is already used | Stop the other process or change the host-side port in `docker-compose.yml`. |
 
-```sh
-export QUALITY_TEST_POSTGRES='Host=127.0.0.1;Port=54329;Database=quality;Username=quality;Password=quality-local-only'
-dotnet test QualitySystem.sln -c Release
-python3 scripts/verify-modes.py
-```
-
-The mode verification script leaves synthetic jobs in PostgreSQL for inspection; it removes its temporary file-store jobs. See [verification results](docs/verification.md) for the checks actually run during scaffolding.
-
-## Compose verification
-
-After starting the stack:
-
-```sh
-python3 scripts/verify-compose.py
-python3 scripts/verify-artifacts.py
-# Optional: briefly recreate this project's containers and confirm persisted data survives.
-python3 scripts/verify-compose.py --recreate
-# Run Chromium, API, and contract smoke tests inside the same application image.
-docker compose --profile test run --rm smoke
-```
-
-The Compose verifier checks API/worker planning, one-shot JSON and exit codes, shared image identity, the .NET 10 runtime, non-root/read-only settings, and a signed MinIO S3 upload/download. It creates synthetic jobs and a temporary test bucket, then deletes that bucket. With `--recreate`, PostgreSQL and MinIO named volumes must preserve the completed plan and test object across container replacement. The stack remains running after verification.
-
-The `smoke` profile uses the same application image and writes browser output to `/tmp`, so its root filesystem remains read-only. Its temporary reports disappear with `--rm`; use the host Playwright command with `QUALITY_BASE_URL` to retain reports locally. Run `python3 scripts/verify-artifacts.py` to verify the application adapter and CLI against a temporary MinIO bucket.
-
-On macOS, if Docker reports that `docker-credential-desktop` cannot be found, add `/Applications/Docker.app/Contents/Resources/bin` to your shell's PATH. The Compose verification script handles that location automatically.
-
-## Repository
+## What each part does
 
 | Path | Purpose |
 | --- | --- |
-| `src/Quality.Domain` | Canonical models, reference validation, state transitions |
-| `src/Quality.Orchestrator` | Job pipeline, adapter interfaces, explicit stubs |
-| `src/Quality.Persistence` | PostgreSQL/file planning storage and local TestRun store |
-| `src/Quality.Api` | Shared API / worker / one-shot / get entry point |
-| `tests/Quality.Tests` | State, orchestration, concurrency, recovery and PostgreSQL tests |
-| `playwright/sdk` | Typed HTTP client |
-| `playwright/execution` | Trusted manifest-to-test runner and evidence reporter |
-| `playwright/fixtures`, `seeds`, `page-objects`, `tests` | Reusable browser test structure and smoke tests |
-| `schemas/v1`, `schemas/examples` | JSON Schema 2020-12 contracts and request example |
-| `prompts/plan/v2` | Pinned system prompt and schema manifest for live planning |
-| `prompts/normalize/v1`, `prompts/plan/v1` | Historical scaffold contracts |
-| `scripts/verify-compose.py` | Container roles, runtime, storage and recreation checks |
-| `scripts/verify-modes.py` | Cross-process API/worker/CLI and restart verification |
-| `Dockerfile`, `docker-compose.yml` | One application image and local dependencies |
+| `src/Quality.CommandCenter` | Local web interface and server-side API proxy |
+| `src/Quality.Api` | API, worker, and terminal entry point |
+| `src/Quality.Orchestrator` | Requirement and planning workflow |
+| `src/Quality.Persistence` | PostgreSQL and file storage |
+| `playwright/execution` | Reviewed manifest runner |
+| `data/executions` | Native execution results and evidence |
 
-See [architecture](docs/architecture.md), [job contract](docs/job-contract.md), and [current build plan](docs/next-steps.md). To work in this repository as a saved Codex project, add this folder in Codex; sidebar registration could not be automated in the originating task.
+More detail: [architecture](docs/architecture.md), [Command Center security](docs/command-center.md), [API contract](docs/job-contract.md), and [current build plan](docs/next-steps.md).
