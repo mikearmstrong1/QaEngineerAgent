@@ -4,7 +4,7 @@ Last checked: **2026-09-19** against the running local deployment, saved verific
 
 ## Implemented scope
 
-1. **Real requirements adapter — implemented.** Read-only Jira issue and Coda requirement-row ingestion with document/table references, source revisions, criterion provenance, and repeatable provider fixtures. See [configuration and limits](requirements-ingestion.md). Live account verification remains environment-dependent.
+1. **Real requirements adapter — implemented; live Jira passed.** Read-only Jira issue and Coda requirement-row ingestion with document/table references, source revisions, criterion provenance, and repeatable provider fixtures. See [configuration and limits](requirements-ingestion.md). A real Jira Cloud issue was imported successfully with non-stub criterion provenance; live Coda verification remains environment-dependent. See [live provider evidence](live-provider-verification.md).
 2. **Structured planning provider — implemented.** Optional OpenAI Responses adapter with pinned plan/v2 prompt/schema, local JSON Schema and traceability validation, persisted model/version/hashes, bounded retries/timeouts, and no-call reports for missing requirements. See [configuration and limits](structured-planning.md). Live API verification remains environment-dependent.
 3. **Playwright execution adapter — implemented.** Reviewed, hash-bound execution manifests generate fixed Playwright tests in isolated run directories, enforce exact target origins and timeouts, and persist real TestRun status plus local evidence. See [workflow and limits](playwright-execution.md).
 4. **MinIO artifact adapter — implemented.** Optional evidence uploads with SHA-256/content types, independent run upload status, resumable publishing, failure-evidence associations, explicit bucket initialization and prefix-scoped retention. See [setup and limits](minio-artifacts.md). Real local MinIO round trips and CLI publishing verified.
@@ -24,6 +24,6 @@ Last checked: **2026-09-19** against the running local deployment, saved verific
 
 ## Next work, in order
 
-1. **Verify configured live providers.** Exercise Jira/Coda ingestion and OpenAI planning with configured credentials, recording results and any remaining limitations. Fixture/stub verification does not establish live-provider readiness.
+1. **Verify the remaining live providers.** Jira Cloud ingestion passed against `KAN-2`. Exercise Coda ingestion and OpenAI planning with configured credentials, recording results and any remaining limitations. Fixture/stub verification does not establish their live-provider readiness.
 
 Use local Qwen for bounded implementation drafts, test proposals, and reviews where practical. Review its output and execute verification through the supervising agent; Qwen does not have independent shell access.
