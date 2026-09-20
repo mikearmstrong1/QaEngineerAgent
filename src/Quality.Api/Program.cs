@@ -81,14 +81,14 @@ try
     }
     if (mode is "init-artifacts" or "publish-artifacts" or "associate-failure")
     {
-        if (app.Services.GetService<MinioArtifactStore>() is null) throw new ArgumentException("Configure Quality__Artifacts__Mode=MinIO first");
+        var remoteStore = app.Services.GetService<IRemoteArtifactStore>()
+            ?? throw new ArgumentException("Configure Quality__Artifacts__Mode=MinIO or Azure first");
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         if (mode == "init-artifacts")
         {
             if (args.Length != 1) throw new ArgumentException("init-artifacts takes no arguments");
-            await app.Services.GetRequiredService<MinioArtifactStore>().InitializeAsync(timeout.Token);
-            var settings = app.Services.GetRequiredService<MinioOptions>();
-            Console.WriteLine(JsonSerializer.Serialize(new { bucket = settings.Bucket, retentionDays = settings.RetentionDays, prefix = MinioArtifactStore.Prefix }, ContractJson.Options));
+            await remoteStore.InitializeAsync(timeout.Token);
+            Console.WriteLine(JsonSerializer.Serialize(remoteStore.Info, ContractJson.Options));
             return 0;
         }
         var publisher = app.Services.GetRequiredService<RunArtifactPublisher>();
@@ -138,7 +138,7 @@ try
         {
             var run = await app.Services.GetRequiredService<IReviewedTestExecutor>()
                 .ExecuteReviewedAsync(job.TestPlan, bytes, options["--sha256"], cancellation.Token);
-            if (app.Services.GetService<MinioArtifactStore>() is not null && !cancellation.IsCancellationRequested)
+            if (app.Services.GetService<IRemoteArtifactStore>() is not null && !cancellation.IsCancellationRequested)
                 run = await app.Services.GetRequiredService<RunArtifactPublisher>().PublishAsync(run.Id, cancellation.Token);
             Console.WriteLine(JsonSerializer.Serialize(run, ContractJson.Options));
             return run.Status == "Passed" && run.ArtifactUploadStatus != "Failed" ? 0 : 1;
@@ -225,6 +225,29 @@ try
         if (job.TestPlan is null) return Results.Ok(new { items = Array.Empty<TestRun>() });
         return Results.Ok(new { items = await runs.ListByPlanAsync(job.TestPlan.Id, ct) });
     });
+    app.MapGet("/runs/{id}/artifacts", async Task<IResult> (string id, string? key, bool? download,
+        HttpResponse response, ArtifactContentReader reader, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+        try
+        {
+            var artifact = await reader.OpenAsync(id, key ?? "", ct);
+            if (artifact is null) return Results.NotFound(new { error = "artifact_not_found" });
+            response.Headers.CacheControl = "private,no-store";
+            response.Headers.XContentTypeOptions = "nosniff";
+            response.Headers.ContentSecurityPolicy = "sandbox; default-src 'none'";
+            response.Headers["X-Artifact-Content-Type"] = artifact.ContentType;
+            var contentType = download == true ? artifact.ContentType : SafePreviewContentType(artifact.ContentType);
+            return Results.Stream(artifact.Stream, contentType, download == true ? artifact.FileName : null,
+                enableRangeProcessing: false);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["artifact"] = [ex.Message] });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception) { return Results.Json(new { error = "artifact_unavailable" }, statusCode: 503); }
+    });
     app.MapPost("/runs/{id}/classification", async (string id, FailureReviewRequest review, RegressionPromotion promotion, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
@@ -280,6 +303,13 @@ static void MapMetrics(WebApplication app)
         context.Response.Headers.CacheControl = "no-store";
         return Results.Text(metrics.Render(), "text/plain; version=0.0.4; charset=utf-8");
     });
+}
+
+static string SafePreviewContentType(string contentType)
+{
+    var normalized = contentType.Split(';', 2)[0].Trim().ToLowerInvariant();
+    return normalized is "image/png" or "image/jpeg" or "image/gif" or "image/webp"
+        or "application/json" or "text/plain" ? contentType : "application/octet-stream";
 }
 
 static Dictionary<string, string> ParseOptions(string[] values, string[] allowed, string[]? optional = null)
@@ -390,8 +420,22 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton<Amazon.S3.IAmazonS3>(_ => MinioArtifactStore.CreateClient(settings));
         services.AddSingleton<MinioArtifactStore>();
         services.AddSingleton<IArtifactStore>(sp => sp.GetRequiredService<MinioArtifactStore>());
+        services.AddSingleton<IRemoteArtifactStore>(sp => sp.GetRequiredService<MinioArtifactStore>());
     }
-    else throw new ArgumentException("Quality__Artifacts__Mode must be Local or MinIO");
+    else if (artifactMode.Equals("Azure", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Artifacts");
+        var settings = new AzureBlobOptions(section["Azure:ConnectionString"], section["Azure:ServiceUri"],
+            section["Azure:Container"] ?? "quality-artifacts", section.GetValue<long>("MaxArtifactBytes", 134217728),
+            section.GetValue("TimeoutSeconds", 60));
+        settings.Validate();
+        services.AddSingleton(settings);
+        services.AddSingleton(_ => AzureBlobArtifactStore.CreateClient(settings));
+        services.AddSingleton<AzureBlobArtifactStore>();
+        services.AddSingleton<IArtifactStore>(sp => sp.GetRequiredService<AzureBlobArtifactStore>());
+        services.AddSingleton<IRemoteArtifactStore>(sp => sp.GetRequiredService<AzureBlobArtifactStore>());
+    }
+    else throw new ArgumentException("Quality__Artifacts__Mode must be Local, MinIO or Azure");
     services.AddSingleton<RunArtifactPublisher>();
     var proposalWorkspace = Path.GetFullPath(configuration["Quality:SourceControl:Workspace"] ?? Directory.GetCurrentDirectory());
     services.AddSingleton(new SourceControlOptions(proposalWorkspace,
@@ -404,6 +448,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     var execution = configuration.GetSection("Quality:Execution");
     var workspace = Path.GetFullPath(execution["Workspace"] ?? Directory.GetCurrentDirectory());
     services.AddSingleton<ITestRunStore>(new FileTestRunStore(execution["RunDirectory"] ?? Path.Combine(workspace, "data/executions")));
+    services.AddSingleton<ArtifactContentReader>();
     services.AddSingleton(new ExecutionOptions(workspace,
         (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         execution["NodeExecutable"] ?? "node"));

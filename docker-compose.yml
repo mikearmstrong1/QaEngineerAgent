@@ -25,6 +25,11 @@ x-quality: &quality
     Quality__Artifacts__AccessKey: ${MINIO_ROOT_USER:-quality-local}
     Quality__Artifacts__SecretKey: ${MINIO_ROOT_PASSWORD:-quality-local-only}
     Quality__Artifacts__RetentionDays: ${QUALITY_ARTIFACTS_RETENTION_DAYS:-30}
+    Quality__Artifacts__MaxArtifactBytes: ${QUALITY_ARTIFACTS_MAX_BYTES:-134217728}
+    Quality__Artifacts__TimeoutSeconds: ${QUALITY_ARTIFACTS_TIMEOUT_SECONDS:-60}
+    Quality__Artifacts__Azure__ConnectionString: ${AZURE_STORAGE_CONNECTION_STRING:-}
+    Quality__Artifacts__Azure__ServiceUri: ${QUALITY_ARTIFACTS_AZURE_SERVICE_URI:-}
+    Quality__Artifacts__Azure__Container: ${QUALITY_ARTIFACTS_AZURE_CONTAINER:-quality-artifacts}
     Quality__Execution__Workspace: /app
     Quality__Execution__RunDirectory: /data/executions
     Quality__Execution__AllowedOrigins: ${QUALITY_EXECUTION_ALLOWED_ORIGINS:-}

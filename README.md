@@ -249,6 +249,16 @@ docker compose --profile cli run --rm oneshot \
 
 Open the MinIO console at [http://127.0.0.1:9001](http://127.0.0.1:9001). See [artifact storage](docs/minio-artifacts.md) for retention and security details.
 
+Azure Blob Storage is also supported. Set `QUALITY_ARTIFACTS_MODE=Azure`, configure either
+`AZURE_STORAGE_CONNECTION_STRING` or `QUALITY_ARTIFACTS_AZURE_SERVICE_URI`, and set
+`QUALITY_ARTIFACTS_AZURE_CONTAINER`. Run the same `init-artifacts` command once to create the private
+container. Passwordless service-URI configuration uses `DefaultAzureCredential`; account lifecycle
+retention remains an Azure administration responsibility. See [Azure artifact storage](docs/azure-artifacts.md).
+
+The Command Center evidence list can safely preview text, JSON, and images and save every artifact type.
+Reads use the local execution copy first and fall back to the configured remote provider only through the
+run's stored artifact association.
+
 ### Classify a failed run
 
 In the Command Center, select the job, find the failed run under **Execution runs**, inspect its evidence references, choose a classification, enter a reason, and select **Save human review**.

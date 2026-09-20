@@ -33,6 +33,7 @@ public sealed class StubLlmProvider : ILlmProvider
 // Fail closed: placeholders never pretend that an artifact was uploaded, code published, or a test passed.
 public sealed class StubArtifactStore : IArtifactStore
 {
+    public string Provider => "Local";
     public Task<ArtifactHandle> PutAsync(string key, Stream content, string contentType, CancellationToken ct)
         => throw new NotSupportedException("Artifact provider is not configured");
     public Task<Stream> OpenReadAsync(string key, CancellationToken ct)

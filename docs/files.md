@@ -12,6 +12,7 @@ QualitySystem.sln
 README.md
 docker-compose.yml
 docs/architecture.md
+docs/azure-artifacts.md
 docs/command-center.md
 docs/files.md
 docs/job-contract.md
@@ -59,6 +60,8 @@ src/Quality.Domain/Models.cs
 src/Quality.Domain/Quality.Domain.csproj
 src/Quality.Domain/packages.lock.json
 src/Quality.Orchestrator/JobService.cs
+src/Quality.Orchestrator/ArtifactContentReader.cs
+src/Quality.Orchestrator/AzureBlobArtifactStore.cs
 src/Quality.Orchestrator/Ports.cs
 src/Quality.Orchestrator/Quality.Orchestrator.csproj
 src/Quality.Orchestrator/StubAdapters.cs

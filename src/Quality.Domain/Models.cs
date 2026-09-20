@@ -50,7 +50,8 @@ public sealed record PlanningMetadata(string Provider, string RequestedModel, st
 public sealed record TestPlan(string Id, string RequirementId, string Summary, TestCase[] TestCases,
     string[] Assumptions, string[] CoverageGaps, string PromptVersion, bool IsStub, string SchemaVersion = "1.0",
     PlanningMetadata? Planning = null);
-public sealed record StoredArtifact(string LocalKey, string ObjectKey, string Bucket, string ContentType, long Length, string Sha256);
+public sealed record StoredArtifact(string LocalKey, string ObjectKey, string Bucket, string ContentType, long Length, string Sha256,
+    string? Provider = null);
 public sealed record TestRun(string Id, string TestPlanId, string Status, DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt, string[] ArtifactKeys, string? ExecutorVersion, string SchemaVersion = "1.0",
     string? ManifestHash = null, string[]? TestCaseIds = null,

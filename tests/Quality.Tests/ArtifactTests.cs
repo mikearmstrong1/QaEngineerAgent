@@ -102,15 +102,81 @@ public sealed class ArtifactTests
 
     private sealed class FlakyStore : IArtifactStore
     {
+        public string Provider => "Fixture";
         public int Calls;
         public bool Fail = true;
         public async Task<ArtifactHandle> PutAsync(string key, Stream content, string type, CancellationToken ct)
         {
             if (++Calls == 2 && Fail) throw new Exception("private provider secret");
             var size = content.Length;
-            return new(key, type, size, Convert.ToHexString(await SHA256.HashDataAsync(content, ct)).ToLowerInvariant(), "test-bucket");
+            return new(key, type, size, Convert.ToHexString(await SHA256.HashDataAsync(content, ct)).ToLowerInvariant(), "test-bucket", Provider);
         }
-        public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Stream> OpenReadAsync(string key, CancellationToken ct)
+            => Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes("fixture")));
+    }
+    [Fact]
+    public async Task ArtifactReaderAllowsOwnedLocalFilesAndRejectsForeignKeysAndLinks()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-artifact-reader-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runs = new FileTestRunStore(root);
+            var id = Guid.NewGuid().ToString("N");
+            var key = id + "/result.json";
+            await runs.SaveAsync(new(id, "plan", "Passed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [key], "test"), default);
+            await File.WriteAllTextAsync(Path.Combine(runs.DirectoryFor(id), "result.json"), "{\"status\":\"Passed\"}");
+            var reader = new ArtifactContentReader(runs, new StubArtifactStore());
+            var result = await reader.OpenAsync(id, key, default);
+            Assert.NotNull(result);
+            await using (result!.Stream) Assert.Contains("Passed", await new StreamReader(result.Stream).ReadToEndAsync());
+            Assert.Equal("application/json", result.ContentType);
+            await Assert.ThrowsAsync<ArgumentException>(() => reader.OpenAsync(id, id + "/../private", default));
+            await Assert.ThrowsAsync<ArgumentException>(() => reader.OpenAsync(id, "another-run/result.json", default));
+
+            var linkKey = id + "/linked.log";
+            await runs.SaveAsync((await runs.GetAsync(id, default))! with { ArtifactKeys = [key, linkKey] }, default);
+            File.CreateSymbolicLink(Path.Combine(runs.DirectoryFor(id), "linked.log"), Path.Combine(runs.DirectoryFor(id), "result.json"));
+            await Assert.ThrowsAsync<InvalidDataException>(() => reader.OpenAsync(id, linkKey, default));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+    [Fact]
+    public async Task ArtifactReaderFallsBackOnlyToTheAssociatedRemoteProvider()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-artifact-remote-reader-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runs = new FileTestRunStore(root);
+            var id = Guid.NewGuid().ToString("N");
+            var local = id + "/trace.zip";
+            var remote = "quality-system/runs/" + id + "/hash/trace.zip";
+            await runs.SaveAsync(new(id, "plan", "Failed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [local], "test",
+                StoredArtifacts: [new(local, remote, "bucket", "application/zip", 8, "hash", "Fixture")]), default);
+            var store = new FlakyStore { Fail = false };
+            var reader = new ArtifactContentReader(runs, store);
+            var fetched = await reader.OpenAsync(id, local, default);
+            Assert.NotNull(fetched);
+            await fetched!.Stream.DisposeAsync();
+            await runs.SaveAsync((await runs.GetAsync(id, default))! with
+            {
+                StoredArtifacts = [new(local, remote, "bucket", "application/zip", 8, "hash", "Other")]
+            }, default);
+            Assert.Null(await reader.OpenAsync(id, local, default));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("UseDevelopmentStorage=true", "https://account.blob.core.windows.net/")]
+    [InlineData(null, "http://account.blob.core.windows.net/")]
+    public void AzureOptionsRejectAmbiguousOrInsecureConfiguration(string? connectionString, string? serviceUri)
+        => Assert.Throws<ArgumentException>(() => new AzureBlobOptions(connectionString, serviceUri, "quality-artifacts").Validate());
+    [Fact]
+    public void AzureOptionsAcceptConnectionStringOrPasswordlessServiceUri()
+    {
+        new AzureBlobOptions("UseDevelopmentStorage=true", null, "quality-artifacts").Validate();
+        new AzureBlobOptions(null, "https://account.blob.core.windows.net/", "quality-artifacts").Validate();
+        Assert.Throws<ArgumentException>(() => new AzureBlobOptions("UseDevelopmentStorage=true", null, "quality--artifacts").Validate());
     }
     [Fact]
     public async Task PartialFailureIsResumableAndNeverChangesExecutionOutcome()
