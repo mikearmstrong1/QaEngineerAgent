@@ -58,7 +58,7 @@ Configuration comes from the standard .NET configuration providers. See [require
 
 Planning status and execution status are separate. `prepare-execution`, `execute`, and `get-run` expose the reviewed Playwright workflow. TestRun adds optional `manifestHash` and `testCaseIds`; older records remain readable. See [execution contract](playwright-execution.md).
 
-Optional `storedArtifacts` and `artifactUploadStatus` fields keep remote artifact metadata separate from execution status. FailureAnalysis can include `evidenceArtifacts`; association resolves evidence only from its own run. See [MinIO artifacts](minio-artifacts.md).
+Optional `storedArtifacts` and `artifactUploadStatus` fields keep remote artifact metadata separate from execution status. Stored entries identify the provider, container/bucket, object key, media type, length, and SHA-256. FailureAnalysis can include `evidenceArtifacts`; association resolves evidence only from its own run. Authenticated `GET /runs/{runId}/artifacts?key=...&download=...` reads only evidence owned by that run, preferring local data before an associated remote fallback. See [MinIO artifacts](minio-artifacts.md) and [Azure artifacts](azure-artifacts.md).
 
 Optional `failureClassification` and `failureReviewReason` separate triage from execution status. Only explicit review labels an application failure. Promotion requires a still-passing run and exact reviewed manifest; see [regression promotion](regression-promotion.md).
 

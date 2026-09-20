@@ -30,7 +30,7 @@ dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll publish-artifacts --r
 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll get-run --id RUN_ID
 ```
 
-`artifactKeys` retain their local paths. `storedArtifacts` contains each local key, object key, bucket, content type, byte length and SHA-256 digest. `artifactUploadStatus` is separate: `Uploading`, `Uploaded`, or `Failed` (null before publishing). A failed upload leaves the test status and successful associations intact. `execute` exits 1 when storage fails, even if the test status is `Passed`; `publish-artifacts` exits 0 only after all listed artifacts are uploaded.
+`artifactKeys` retain their local paths. `storedArtifacts` contains each local key, object key, bucket, provider, content type, byte length and SHA-256 digest. `artifactUploadStatus` is separate: `Uploading`, `Uploaded`, or `Failed` (null before publishing). A failed upload leaves the test status and successful associations intact. `execute` exits 1 when storage fails, even if the test status is `Passed`; `publish-artifacts` exits 0 only after all listed artifacts are uploaded.
 
 Each remote key has the form `quality-system/runs/RUN_ID/SHA256/relative-path`. Retrying re-uploads the same bytes to the same key, covering lost acknowledgements and expired objects. It does not create duplicate association entries. Changed content gets a different key. A per-run file lock serializes publishers. Failure after an object upload but before saving its association is recoverable by rerunning the upload command.
 

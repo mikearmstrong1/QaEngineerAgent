@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Quality Command Center</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=artifacts-1">
 </head>
 <body>
   <header class="topbar">
@@ -31,6 +31,11 @@
       </section>
     </section>
   </main>
-  <script src="/app.js" defer></script>
+  <dialog id="artifact-dialog" class="artifact-dialog">
+    <div class="artifact-dialog-header"><div><p class="eyebrow">EVIDENCE PREVIEW</p><h2 id="artifact-title">Artifact</h2></div><button id="artifact-close" class="icon-button" aria-label="Close artifact preview">×</button></div>
+    <div id="artifact-preview" class="artifact-preview"></div>
+    <div class="artifact-dialog-actions"><a id="artifact-save" class="evidence-save" href="#" download>Save artifact</a><button id="artifact-done" type="button">Done</button></div>
+  </dialog>
+  <script src="/app.js?v=artifacts-1" defer></script>
 </body>
 </html>

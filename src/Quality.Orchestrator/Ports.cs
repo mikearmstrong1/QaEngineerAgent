@@ -10,11 +10,18 @@ public interface ILlmProvider
     string Name { get; }
     Task<TestPlan> PlanAsync(Requirement requirement, string promptVersion, CancellationToken ct);
 }
-public sealed record ArtifactHandle(string Key, string ContentType, long Length, string Sha256 = "", string Bucket = "");
+public sealed record ArtifactHandle(string Key, string ContentType, long Length, string Sha256 = "", string Bucket = "", string Provider = "");
 public interface IArtifactStore
 {
+    string Provider { get; }
     Task<ArtifactHandle> PutAsync(string key, Stream content, string contentType, CancellationToken ct);
     Task<Stream> OpenReadAsync(string key, CancellationToken ct);
+}
+public sealed record ArtifactStoreInfo(string Provider, string Container, string Prefix, int? RetentionDays, bool RetentionManaged);
+public interface IRemoteArtifactStore : IArtifactStore
+{
+    ArtifactStoreInfo Info { get; }
+    Task InitializeAsync(CancellationToken ct);
 }
 public sealed record SourceChange(string Path, string Content);
 public interface ISourceControl

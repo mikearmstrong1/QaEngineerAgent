@@ -15,11 +15,17 @@ builder.Services.AddHttpClient("quality", client =>
     client.Timeout = TimeSpan.FromSeconds(20);
     if (!string.IsNullOrEmpty(apiKey)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 });
+builder.Services.AddHttpClient("quality-artifacts", client =>
+{
+    client.BaseAddress = apiBase;
+    client.Timeout = TimeSpan.FromMinutes(6);
+    if (!string.IsNullOrEmpty(apiKey)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+});
 
 var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = context =>
-    context.Context.Response.Headers.CacheControl = context.File.Name == "index.html" ? "no-store" : "public,max-age=3600" });
+    context.Context.Response.Headers.CacheControl = "no-cache" });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-command-center" }));
 app.MapGet("/bff/status", async (IHttpClientFactory factory, CancellationToken ct) =>
@@ -40,6 +46,23 @@ app.MapGet("/bff/jobs/{id}/runs", async (string id, IHttpClientFactory factory, 
 {
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/runs", null, ct);
+});
+app.MapGet("/bff/runs/{id}/artifacts", async (string id, string? key, bool? download, HttpContext context,
+    IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _))
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(new { error = "invalid_run_id" }, ct);
+        return;
+    }
+    if (string.IsNullOrWhiteSpace(key) || key.Length > 1000 || key.Any(char.IsControl))
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(new { error = "invalid_artifact_key" }, ct);
+        return;
+    }
+    await ForwardArtifactAsync(factory, context, id, key, download == true, ct);
 });
 app.MapPost("/bff/runs/{id}/classification", async Task<IResult> (string id, HttpRequest request, FailureReview input, IHttpClientFactory factory, CancellationToken ct) =>
 {
@@ -97,6 +120,34 @@ static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod m
     }
     catch (HttpRequestException) { return Results.Json(new { error = "quality_api_unavailable" }, statusCode: 503); }
     catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return Results.Json(new { error = "quality_api_timeout" }, statusCode: 504); }
+}
+
+static async Task ForwardArtifactAsync(IHttpClientFactory factory, HttpContext context, string runId, string key, bool download, CancellationToken ct)
+{
+    try
+    {
+        var path = $"/runs/{runId}/artifacts?key={Uri.EscapeDataString(key)}&download={download.ToString().ToLowerInvariant()}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var upstream = await factory.CreateClient("quality-artifacts").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        context.Response.StatusCode = (int)upstream.StatusCode;
+        context.Response.Headers.CacheControl = "private,no-store";
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        context.Response.Headers.ContentSecurityPolicy = "sandbox; default-src 'none'";
+        context.Response.ContentType = upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        if (upstream.Content.Headers.ContentLength is { } length) context.Response.ContentLength = length;
+        if (upstream.Content.Headers.ContentDisposition is { } disposition)
+            context.Response.Headers.ContentDisposition = disposition.ToString();
+        if (upstream.Headers.TryGetValues("X-Artifact-Content-Type", out var originalTypes))
+            context.Response.Headers["X-Artifact-Content-Type"] = originalTypes.Single();
+        await using var stream = await upstream.Content.ReadAsStreamAsync(ct);
+        await stream.CopyToAsync(context.Response.Body, ct);
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+    catch (Exception) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new { error = "artifact_api_unavailable" }, ct);
+    }
 }
 
 sealed record SubmitRequest(string? JiraKey);

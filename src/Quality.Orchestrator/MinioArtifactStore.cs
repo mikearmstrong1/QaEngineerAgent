@@ -24,9 +24,11 @@ public sealed record MinioOptions(string Endpoint, string AccessKey, string Secr
     }
 }
 
-public sealed class MinioArtifactStore(IAmazonS3 client, MinioOptions options) : IArtifactStore
+public sealed class MinioArtifactStore(IAmazonS3 client, MinioOptions options) : IRemoteArtifactStore
 {
     public const string Prefix = "quality-system/";
+    public string Provider => "MinIO";
+    public ArtifactStoreInfo Info => new(Provider, options.Bucket, Prefix, options.RetentionDays, true);
     public static AmazonS3Client CreateClient(MinioOptions options)
     {
         options.Validate();
@@ -85,7 +87,7 @@ public sealed class MinioArtifactStore(IAmazonS3 client, MinioOptions options) :
         };
         request.Metadata["sha256"] = checksum;
         await client.PutObjectAsync(request, timeout.Token);
-        return new(key, contentType, snapshot.Length, checksum, options.Bucket);
+        return new(key, contentType, snapshot.Length, checksum, options.Bucket, Provider);
     }
 
     public async Task<Stream> OpenReadAsync(string key, CancellationToken ct)

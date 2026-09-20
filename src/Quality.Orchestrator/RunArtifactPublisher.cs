@@ -42,7 +42,7 @@ public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore arti
                 // Re-PUT the same content-addressed key on retry: safe after a lost acknowledgement or expired object.
                 var handle = await artifacts.PutAsync(key, source, ContentType(path), timeout.Token);
                 if (handle.Sha256 != hash || handle.Length != source.Length) throw new InvalidDataException("Artifact changed during upload");
-                uploaded[localKey] = new(localKey, handle.Key, handle.Bucket, handle.ContentType, handle.Length, handle.Sha256);
+                uploaded[localKey] = new(localKey, handle.Key, handle.Bucket, handle.ContentType, handle.Length, handle.Sha256, handle.Provider);
                 run = run with { StoredArtifacts = uploaded.Values.OrderBy(a => a.LocalKey, StringComparer.Ordinal).ToArray() };
                 await runs.SaveAsync(run, timeout.Token);
             }

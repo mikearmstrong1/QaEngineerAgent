@@ -9,7 +9,7 @@ Open [http://127.0.0.1:5081](http://127.0.0.1:5081) after starting Compose. The 
 - Jira-key submission
 - live polling through normalization and planning
 - requirement, acceptance-criterion, test-case, assumption, coverage-gap, and planning-metadata review
-- execution history for the selected plan, including status, automatic triage, and evidence references
+- execution history for the selected plan, including status, automatic triage, evidence preview, and artifact download
 - explicit human classification of failed runs with a required review reason
 - regression patch creation, exact diff review, and explicit application to a configured test repository for eligible passing runs
 
@@ -21,7 +21,7 @@ Mutating BFF calls require the non-simple `X-Command-Center: 1` header and JSON 
 
 1. Select the job whose reviewed manifest was executed.
 2. Find the failed run under **Execution runs**.
-3. Expand **Evidence references** and inspect the listed screenshots, traces, and logs in the execution data or configured artifact store.
+3. Expand **Evidence**, then select **View** for safe inline text, JSON, and image previews or **Save** for any artifact type. The server reads the local execution copy first and can fall back to its associated MinIO or Azure Blob object.
 4. Compare the evidence with the automatic triage recommendation.
 5. Choose `ApplicationFailure`, `TestFailure`, or `InfrastructureFailure`, write the reason, and select **Save human review**.
 
