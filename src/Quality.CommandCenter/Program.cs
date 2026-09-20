@@ -36,6 +36,21 @@ app.MapGet("/bff/jobs/{id}", async (string id, IHttpClientFactory factory, Cance
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}", null, ct);
 });
+app.MapGet("/bff/jobs/{id}/runs", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/runs", null, ct);
+});
+app.MapPost("/bff/runs/{id}/classification", async Task<IResult> (string id, HttpRequest request, FailureReview input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+    if (input.Classification is not ("ApplicationFailure" or "TestFailure" or "InfrastructureFailure") ||
+        string.IsNullOrWhiteSpace(input.Reason) || input.Reason.Length > 4000)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["review"] = ["Choose a classification and enter a reason of 1-4000 characters"] });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/runs/{id}/classification",
+        JsonContent.Create(new { input.Classification, Reason = input.Reason.Trim() }), ct);
+});
 app.MapPost("/bff/jobs", async Task<IResult> (HttpRequest request, SubmitRequest input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -64,5 +79,6 @@ static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod m
 }
 
 sealed record SubmitRequest(string? JiraKey);
+sealed record FailureReview(string? Classification, string? Reason);
 
 public partial class Program { }

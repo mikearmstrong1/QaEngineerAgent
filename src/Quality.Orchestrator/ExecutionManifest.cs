@@ -79,5 +79,6 @@ public interface ITestRunStore
 {
     Task SaveAsync(TestRun run, CancellationToken ct);
     Task<TestRun?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<TestRun>> ListByPlanAsync(string testPlanId, CancellationToken ct);
     string DirectoryFor(string id);
 }

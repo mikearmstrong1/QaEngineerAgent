@@ -73,4 +73,26 @@ public sealed class ExecutionTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public async Task RunsCanBeListedByPlanNewestFirst()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "quality-run-list-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new FileTestRunStore(directory);
+            var older = new TestRun(Guid.NewGuid().ToString("N"), "plan-1", "Failed", DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow, [], "ApplicationFailure");
+            var newer = new TestRun(Guid.NewGuid().ToString("N"), "plan-1", "Failed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [], "TestFailure");
+            var other = new TestRun(Guid.NewGuid().ToString("N"), "plan-2", "Passed", DateTimeOffset.UtcNow.AddMinutes(1), DateTimeOffset.UtcNow, [], null);
+            await store.SaveAsync(older, default);
+            await store.SaveAsync(newer, default);
+            await store.SaveAsync(other, default);
+
+            var runs = await store.ListByPlanAsync("plan-1", default);
+
+            Assert.Equal([newer.Id, older.Id], runs.Select(run => run.Id));
+            Assert.Throws<ArgumentException>(() => store.ListByPlanAsync("bad\nplan", default).GetAwaiter().GetResult());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }

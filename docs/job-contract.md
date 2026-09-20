@@ -61,3 +61,5 @@ Planning status and execution status are separate. `prepare-execution`, `execute
 Optional `storedArtifacts` and `artifactUploadStatus` fields keep remote artifact metadata separate from execution status. FailureAnalysis can include `evidenceArtifacts`; association resolves evidence only from its own run. See [MinIO artifacts](minio-artifacts.md).
 
 Optional `failureClassification` and `failureReviewReason` separate triage from execution status. Only explicit review labels an application failure. Promotion requires a still-passing run and exact reviewed manifest; see [regression promotion](regression-promotion.md).
+
+`GET /jobs/<id>/runs` returns up to 100 runs for that job's current test plan, newest first. A job without a plan returns an empty `items` array. `POST /runs/<id>/classification` accepts `classification` (`ApplicationFailure`, `TestFailure`, or `InfrastructureFailure`) and a nonblank `reason` of at most 4000 characters. It accepts only completed failing runs and uses the same classification service as the CLI. Both endpoints require the API bearer key when authentication is enabled.

@@ -9,14 +9,26 @@ Open [http://127.0.0.1:5081](http://127.0.0.1:5081) after starting Compose. The 
 - Jira-key submission
 - live polling through normalization and planning
 - requirement, acceptance-criterion, test-case, assumption, coverage-gap, and planning-metadata review
+- execution history for the selected plan, including status, automatic triage, and evidence references
+- explicit human classification of failed runs with a required review reason
 
 The browser talks only to same-origin `/bff/*` routes. The Command Center service injects `QUALITY_API_KEY` when it calls the Quality API; the bearer key and Jira/OpenAI credentials are never placed in browser assets or responses. The Compose port binds to loopback. Deployments exposed beyond a trusted local machine need user authentication and TLS in front of the service.
 
 Mutating BFF calls require the non-simple `X-Command-Center: 1` header and JSON content. Jira keys are normalized and validated again before forwarding. The Quality API remains authoritative for request validation and idempotency behavior.
 
+## Review a failed run
+
+1. Select the job whose reviewed manifest was executed.
+2. Find the failed run under **Execution runs**.
+3. Expand **Evidence references** and inspect the listed screenshots, traces, and logs in the execution data or configured artifact store.
+4. Compare the evidence with the automatic triage recommendation.
+5. Choose `ApplicationFailure`, `TestFailure`, or `InfrastructureFailure`, write the reason, and select **Save human review**.
+
+The saved review is attached to the run. It does not change the execution result or promote regression coverage. The web form accepts only completed failing runs and uses the same `RegressionPromotion.ClassifyFailureAsync` service as the terminal command.
+
 ## Terminal parity
 
-The web app deliberately stops at plan review in this release. Reviewed Playwright execution and regression operations remain available through the documented CLI workflow. Later web controls must invoke the same application services and preserve manifest hashes, review gates, allowlists, failure classifications, and promotion checks.
+Reviewed Playwright execution and regression promotion remain available through the documented CLI workflow. Failure classification is available in both interfaces. Web controls invoke the same application services and preserve failure classifications, required review reasons, and terminal commands.
 
 ## Configuration
 

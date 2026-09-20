@@ -79,7 +79,7 @@ Check each section before using the plan:
 - **Coverage gaps:** Decide whether the Jira story needs more detail.
 - **Model metadata:** Confirm the plan came from the expected provider and model.
 
-The Command Center creates and reviews plans. It does not automatically run tests or change source code.
+The Command Center creates and reviews plans. After a reviewed terminal execution, it also shows runs and lets a person classify failures. It does not automatically run tests or change source code.
 
 ## Everyday commands
 
@@ -248,7 +248,9 @@ Open the MinIO console at [http://127.0.0.1:9001](http://127.0.0.1:9001). See [a
 
 ### Classify a failed run
 
-Review the screenshots, trace, and logs first. Then record the conclusion:
+In the Command Center, select the job, find the failed run under **Execution runs**, inspect its evidence references, choose a classification, enter a reason, and select **Save human review**.
+
+The equivalent terminal command remains available:
 
 ```sh
 docker compose --profile cli run --rm oneshot \

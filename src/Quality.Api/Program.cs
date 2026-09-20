@@ -217,6 +217,23 @@ try
         var job = await jobs.GetAsync(id, ct);
         return job is null ? Results.NotFound() : Results.Ok(job);
     });
+    app.MapGet("/jobs/{id}/runs", async (string id, ITestRunStore runs, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        var job = await jobs.GetAsync(id, ct);
+        if (job is null) return Results.NotFound();
+        if (job.TestPlan is null) return Results.Ok(new { items = Array.Empty<TestRun>() });
+        return Results.Ok(new { items = await runs.ListByPlanAsync(job.TestPlan.Id, ct) });
+    });
+    app.MapPost("/runs/{id}/classification", async (string id, FailureReviewRequest review, RegressionPromotion promotion, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+        try { return Results.Ok(await promotion.ClassifyFailureAsync(id, review.Classification ?? "", review.Reason ?? "", ct)); }
+        catch (ArgumentException ex)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["review"] = [ex.Message] });
+        }
+    });
     app.MapGet("/", () => Results.Content("""
         <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Quality System</title></head>
         <body><main><h1>Engineering Quality System</h1><p>Portable requirement-to-test planning.</p>
@@ -370,3 +387,4 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
 }
 
 public partial class Program { }
+public sealed record FailureReviewRequest(string? Classification, string? Reason);
