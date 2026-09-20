@@ -1,6 +1,24 @@
 # Reviewed regression promotion
 
-Step 5 turns a passing reviewed execution into an isolated Git patch. It preserves the executed assertions and source mappings. It never changes a failing assertion to make a test pass, applies a patch automatically, pushes a branch, or opens a remote pull request.
+Regression promotion turns a passing reviewed execution into a proposed test for a Git repository that you choose. That configured repository should be the repository that owns and runs your Playwright regression tests. It may be separate from this QA agent repository.
+
+The system first creates an isolated patch. The Command Center can apply that patch only after a person reviews the exact diff, target repository, and SHA-256 and confirms the apply action. It never changes assertions to make a test pass, commits files, pushes a branch, or opens a pull request.
+
+## Configure the target test repository
+
+For Compose, set an absolute host path in `.env`:
+
+```dotenv
+QUALITY_REGRESSION_REPOSITORY=/absolute/path/to/your-test-repository
+```
+
+Then recreate the services:
+
+```sh
+docker compose up --no-build --force-recreate -d --wait api worker command-center
+```
+
+Compose mounts that directory at `/regression-target` for the application services. The target must be the root of a Git repository. Promoted tests expect compatible `playwright/execution/register.cjs` support and Playwright dependencies in that repository. If the variable is unset, Compose targets this current project repository and labels it clearly in the review screen.
 
 ## Propose coverage
 
@@ -37,7 +55,7 @@ git apply --check /absolute/path/to/proposal.patch
 git apply /absolute/path/to/proposal.patch
 ```
 
-These commands are manual. Commit or submit a PR through your normal review workflow after inspecting the changes. The patch only adds regression files; it expects this version of the repository's shared runner, schema and regression configuration. It does not carry the entire application runtime.
+These commands are the manual terminal alternative to the Command Center's reviewed apply action. Run them from the configured target test repository. Commit or submit a PR through your normal review workflow after inspecting the changes. The patch only adds regression files; it expects the target repository to provide the compatible shared runner, schema, and regression configuration. It does not carry the application runtime.
 
 Run promoted coverage explicitly:
 
@@ -74,9 +92,9 @@ Allowed review categories are `ApplicationFailure`, `TestFailure` and `Infrastru
 
 ## Configuration and boundaries
 
-`Quality__SourceControl__Workspace` identifies the repository receiving the proposed paths (default: current directory). `Quality__SourceControl__ProposalDirectory` controls isolated proposal output (default: `data/proposals` in that workspace). Git must be installed on the host; the Dockerfile installs it at build time. Compose uses `/data/executions/proposals` on its persistent execution volume.
+`QUALITY_REGRESSION_REPOSITORY` is the Compose-facing host path for the target test repository. Internally, `Quality__SourceControl__Workspace` identifies its mounted repository root (default for native use: current directory). `Quality__SourceControl__ProposalDirectory` controls isolated proposal output (default: `data/proposals` in that workspace). Git must be installed on the host; the Dockerfile installs it at build time. Compose keeps proposals at `/data/executions/proposals` on its persistent execution volume.
 
-The patch adapter only permits new files in the regression namespace. It uses an isolated Git index with inherited Git overrides and hooks disabled. It generates a real staged Git diff without reading credentials or modifying the workspace's index. Branch pushing, remote PR creation, updates to existing regressions and automatic assertion healing are outside this implementation.
+The patch adapter only permits new files in the regression namespace. Proposal creation uses an isolated Git index with inherited Git overrides and hooks disabled. Applying requires the exact reviewed patch hash, revalidates the diff with Git, checks the configured repository root, rejects symbolic-link paths and existing files, and then adds the files to the target working tree. It does not stage or commit them. Branch pushing, remote PR creation, updates to existing regressions, and automatic assertion healing remain outside this implementation.
 
 ## Verification
 

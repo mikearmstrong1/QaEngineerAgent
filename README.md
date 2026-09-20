@@ -43,6 +43,9 @@ OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 QUALITY_PLANNING_MAX_ATTEMPTS=1
 QUALITY_PLANNING_ATTEMPT_TIMEOUT_SECONDS=60
 QUALITY_PLANNING_TOTAL_TIMEOUT_SECONDS=75
+
+# Absolute path to the Git repository that owns the regression tests.
+QUALITY_REGRESSION_REPOSITORY=/absolute/path/to/your-test-repository
 ```
 
 `JIRA_ACCEPTANCE_FIELD` is optional when the Jira description contains a top-level `AC` or `Acceptance Criteria` heading. Keep `.env` private; Git ignores it.
@@ -263,13 +266,27 @@ Allowed review classifications are `ApplicationFailure`, `TestFailure`, and `Inf
 
 ### Propose a passing test as regression coverage
 
+Regression promotion adds a new Playwright test to the **configured target test repository**. It does not patch the application repository unless that repository is the configured target.
+
+The easiest workflow is in the Command Center:
+
+1. Select a job with a passing execution run.
+2. Select **Create reviewable patch**.
+3. Inspect the target repository, proposed files, exact Git patch, and patch SHA-256.
+4. Confirm the review and select **Apply patch to target repository**.
+5. Test and commit the new files from the target repository using its normal review process.
+
+Applying through the Command Center adds files to the target repository's working tree. It does not commit, push, create a branch, or open a pull request.
+
+The equivalent terminal command creates the patch proposal without applying it:
+
 ```sh
 docker compose --profile cli run --rm oneshot \
   promote-regression --job JOB_ID --run RUN_ID \
   --sha256 "$REVIEWED_SHA256"
 ```
 
-This creates a reviewable patch. It does not modify the working repository, push a branch, or open a pull request. Follow [reviewed regression promotion](docs/regression-promotion.md) to inspect and apply the patch.
+Follow [reviewed regression promotion](docs/regression-promotion.md) to inspect or apply the patch and configure a separate test repository.
 
 ## Verify the installation
 

@@ -21,6 +21,13 @@ public interface ISourceControl
 {
     Task<string> ProposeAsync(string branch, string title, IReadOnlyList<SourceChange> changes, CancellationToken ct);
 }
+public sealed record RegressionProposal(string RunId, string Title, string Status, string PatchSha256,
+    string TargetRepository, IReadOnlyList<SourceChange> Files, string Patch, DateTimeOffset? AppliedAt = null);
+public interface IRegressionProposalManager
+{
+    Task<RegressionProposal?> GetAsync(string runId, CancellationToken ct);
+    Task<RegressionProposal> ApplyAsync(string runId, string reviewedPatchSha256, CancellationToken ct);
+}
 public interface ITestExecutor
 {
     Task<TestRun> ExecuteAsync(TestPlan plan, Uri baseUrl, CancellationToken ct);

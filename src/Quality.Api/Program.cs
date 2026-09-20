@@ -234,6 +234,32 @@ try
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["review"] = [ex.Message] });
         }
     });
+    app.MapPost("/jobs/{jobId}/runs/{runId}/promotion", async (string jobId, string runId, RegressionPromotionRequest review, RegressionPromotion promotion, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(jobId, "N", out _) || !Guid.TryParseExact(runId, "N", out _))
+            return Results.BadRequest(new { error = "invalid_job_or_run_id" });
+        var job = await jobs.GetAsync(jobId, ct);
+        if (job is null) return Results.NotFound();
+        try
+        {
+            await promotion.ProposeAsync(job, runId, review.ReviewedManifestHash ?? "", ct);
+            var proposal = await app.Services.GetRequiredService<IRegressionProposalManager>().GetAsync(runId, ct);
+            return Results.Ok(proposal);
+        }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["promotion"] = [ex.Message] }); }
+    });
+    app.MapGet("/regression-proposals/{runId}", async (string runId, IRegressionProposalManager proposals, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(runId, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+        var proposal = await proposals.GetAsync(runId, ct);
+        return proposal is null ? Results.NotFound() : Results.Ok(proposal);
+    });
+    app.MapPost("/regression-proposals/{runId}/apply", async (string runId, ApplyRegressionProposalRequest review, IRegressionProposalManager proposals, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(runId, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+        try { return Results.Ok(await proposals.ApplyAsync(runId, review.ReviewedPatchSha256 ?? "", ct)); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["proposal"] = [ex.Message] }); }
+    });
     app.MapGet("/", () => Results.Content("""
         <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Quality System</title></head>
         <body><main><h1>Engineering Quality System</h1><p>Portable requirement-to-test planning.</p>
@@ -369,8 +395,11 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<RunArtifactPublisher>();
     var proposalWorkspace = Path.GetFullPath(configuration["Quality:SourceControl:Workspace"] ?? Directory.GetCurrentDirectory());
     services.AddSingleton(new SourceControlOptions(proposalWorkspace,
-        configuration["Quality:SourceControl:ProposalDirectory"] ?? Path.Combine(proposalWorkspace, "data/proposals")));
-    services.AddSingleton<ISourceControl, GitPatchSourceControl>();
+        configuration["Quality:SourceControl:ProposalDirectory"] ?? Path.Combine(proposalWorkspace, "data/proposals"),
+        configuration["Quality:SourceControl:TargetRepository"]));
+    services.AddSingleton<GitPatchSourceControl>();
+    services.AddSingleton<ISourceControl>(sp => sp.GetRequiredService<GitPatchSourceControl>());
+    services.AddSingleton<IRegressionProposalManager>(sp => sp.GetRequiredService<GitPatchSourceControl>());
     services.AddSingleton<RegressionPromotion>();
     var execution = configuration.GetSection("Quality:Execution");
     var workspace = Path.GetFullPath(execution["Workspace"] ?? Directory.GetCurrentDirectory());
@@ -388,3 +417,5 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
 
 public partial class Program { }
 public sealed record FailureReviewRequest(string? Classification, string? Reason);
+public sealed record RegressionPromotionRequest(string? ReviewedManifestHash);
+public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256);

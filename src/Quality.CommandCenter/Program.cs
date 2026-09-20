@@ -51,6 +51,27 @@ app.MapPost("/bff/runs/{id}/classification", async Task<IResult> (string id, Htt
     return await ForwardAsync(factory, HttpMethod.Post, $"/runs/{id}/classification",
         JsonContent.Create(new { input.Classification, Reason = input.Reason.Trim() }), ct);
 });
+app.MapPost("/bff/jobs/{jobId}/runs/{runId}/promotion", async Task<IResult> (string jobId, string runId, HttpRequest request, PromotionReview input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(jobId, "N", out _) || !Guid.TryParseExact(runId, "N", out _)) return Results.BadRequest(new { error = "invalid_job_or_run_id" });
+    if (!Regex.IsMatch(input.ReviewedManifestHash ?? "", "^[a-f0-9]{64}$"))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["promotion"] = ["Review the manifest SHA-256 before creating a patch"] });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/jobs/{jobId}/runs/{runId}/promotion", JsonContent.Create(input), ct);
+});
+app.MapGet("/bff/regression-proposals/{runId}", async (string runId, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(runId, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/regression-proposals/{runId}", null, ct);
+});
+app.MapPost("/bff/regression-proposals/{runId}/apply", async Task<IResult> (string runId, HttpRequest request, ApplyProposalReview input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(runId, "N", out _)) return Results.BadRequest(new { error = "invalid_run_id" });
+    if (!Regex.IsMatch(input.ReviewedPatchSha256 ?? "", "^[a-f0-9]{64}$"))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["proposal"] = ["Review the patch SHA-256 before applying it"] });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/regression-proposals/{runId}/apply", JsonContent.Create(input), ct);
+});
 app.MapPost("/bff/jobs", async Task<IResult> (HttpRequest request, SubmitRequest input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -80,5 +101,7 @@ static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod m
 
 sealed record SubmitRequest(string? JiraKey);
 sealed record FailureReview(string? Classification, string? Reason);
+sealed record PromotionReview(string? ReviewedManifestHash);
+sealed record ApplyProposalReview(string? ReviewedPatchSha256);
 
 public partial class Program { }

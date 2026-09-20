@@ -16,7 +16,8 @@ x-quality: &quality
     Quality__Lease__RenewalIntervalSeconds: ${QUALITY_LEASE_RENEWAL_INTERVAL_SECONDS:-60}
     Quality__Lease__RenewalTimeoutSeconds: ${QUALITY_LEASE_RENEWAL_TIMEOUT_SECONDS:-15}
     Quality__Lease__CancellationPollIntervalSeconds: ${QUALITY_LEASE_CANCELLATION_POLL_INTERVAL_SECONDS:-1}
-    Quality__SourceControl__Workspace: /app
+    Quality__SourceControl__Workspace: /regression-target
+    Quality__SourceControl__TargetRepository: ${QUALITY_REGRESSION_REPOSITORY:-current project repository}
     Quality__SourceControl__ProposalDirectory: /data/executions/proposals
     Quality__Artifacts__Mode: ${QUALITY_ARTIFACTS_MODE:-Local}
     Quality__Artifacts__Endpoint: http://minio:9000
@@ -47,7 +48,11 @@ x-quality: &quality
   depends_on:
     postgres:
       condition: service_healthy
-  volumes: ["execution-data:/data/executions"]
+  volumes:
+    - execution-data:/data/executions
+    - type: bind
+      source: ${QUALITY_REGRESSION_REPOSITORY:-.}
+      target: /regression-target
   read_only: true
   tmpfs:
     - /tmp:mode=1777

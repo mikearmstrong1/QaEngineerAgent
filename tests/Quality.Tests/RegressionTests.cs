@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using Quality.Domain;
 using Quality.Orchestrator;
 using Quality.Persistence;
@@ -96,6 +97,63 @@ public sealed class RegressionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(root, file), "existing assertion");
         await Assert.ThrowsAsync<ArgumentException>(() => source.ProposeAsync(branch, "overwrite", [new(file, "weaker assertion")], default));
         Assert.Equal("existing assertion", await File.ReadAllTextAsync(Path.Combine(root, file)));
+    }
+    [Fact]
+    public async Task ReviewedProposalCanBeInspectedAndAppliedToConfiguredRepository()
+    {
+        Directory.CreateDirectory(root);
+        await GitInit(root);
+        var proposals = Path.Combine(Path.GetTempPath(), "quality-proposals-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var source = new GitPatchSourceControl(new(root, proposals, "/configured/test-repository"));
+            var runId = Guid.NewGuid().ToString("N");
+            var path = "playwright/regressions/REG-" + new string('b', 24) + "/manifest.json";
+            await source.ProposeAsync("regression/" + runId, "Reviewed regression", [new(path, "{\"reviewed\":true}\n")], default);
+
+            var proposal = await source.GetAsync(runId, default);
+            Assert.NotNull(proposal);
+            Assert.Equal("NeedsReview", proposal.Status);
+            Assert.Equal("/configured/test-repository", proposal.TargetRepository);
+            Assert.Contains(path, proposal.Patch);
+            await Assert.ThrowsAsync<ArgumentException>(() => source.ApplyAsync(runId, new string('0', 64), default));
+            var changedTarget = new GitPatchSourceControl(new(root, proposals, "/different/test-repository"));
+            await Assert.ThrowsAsync<ArgumentException>(() => changedTarget.ApplyAsync(runId, proposal.PatchSha256, default));
+            Assert.False(File.Exists(Path.Combine(root, path)));
+
+            proposal = await source.ApplyAsync(runId, proposal.PatchSha256, default);
+            Assert.Equal("Applied", proposal.Status);
+            Assert.Equal("{\"reviewed\":true}\n", await File.ReadAllTextAsync(Path.Combine(root, path)));
+            await Assert.ThrowsAsync<ArgumentException>(() => source.ApplyAsync(runId, proposal.PatchSha256, default));
+        }
+        finally { if (Directory.Exists(proposals)) Directory.Delete(proposals, true); }
+    }
+    [Fact]
+    public async Task TamperedProposalCannotBeReviewedOrApplied()
+    {
+        Directory.CreateDirectory(root);
+        await GitInit(root);
+        var proposals = Path.Combine(Path.GetTempPath(), "quality-proposals-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var source = new GitPatchSourceControl(new(root, proposals));
+            var runId = Guid.NewGuid().ToString("N");
+            var path = "playwright/regressions/REG-" + new string('c', 24) + "/manifest.json";
+            await source.ProposeAsync("regression/" + runId, "Reviewed regression", [new(path, "{}\n")], default);
+            await File.AppendAllTextAsync(Path.Combine(proposals, runId, "proposal.patch"), "tampered");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => source.GetAsync(runId, default));
+            Assert.False(File.Exists(Path.Combine(root, path)));
+        }
+        finally { if (Directory.Exists(proposals)) Directory.Delete(proposals, true); }
+    }
+    private static async Task GitInit(string directory)
+    {
+        var start = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardError = true };
+        start.ArgumentList.Add("init");
+        start.ArgumentList.Add("--quiet");
+        using var process = Process.Start(start)!;
+        await process.WaitForExitAsync();
+        Assert.Equal(0, process.ExitCode);
     }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }
