@@ -58,6 +58,8 @@ app.MapGet("/bff/jobs/{id}/execution-requests", async (string id, IHttpClientFac
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/execution-requests", null, ct);
 });
+app.MapGet("/bff/execution-policy", async (IHttpClientFactory factory, CancellationToken ct) =>
+    await ForwardAsync(factory, HttpMethod.Get, "/execution-policy", null, ct));
 app.MapPost("/bff/jobs/{id}/execution-requests", async Task<IResult> (string id, HttpRequest request, CreateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);

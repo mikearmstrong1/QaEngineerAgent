@@ -22,29 +22,41 @@ async function renderExecutions(job){
   s.append(node('div','Loading execution requests…','notice'));
   $('detail').append(s);
   try{
-    const data=await request(`/bff/jobs/${job.id}/execution-requests`);
+    const [data,policy]=await Promise.all([
+      request(`/bff/jobs/${job.id}/execution-requests`),
+      request('/bff/execution-policy').catch(()=>({allowedOrigins:[]}))
+    ]);
     s.replaceChildren(node('h3','Reviewed execution'));
     const create=node('form',undefined,'execution-create');
-    const label=node('label','Application URL to test','target-label');
+    const intro=node('div',undefined,'execution-intro');
+    intro.append(node('strong','Step 1 — choose the web page the browser should open'),
+      node('p','Paste the same address you would open manually in Chrome. This is not an API endpoint, test script, or selector.'));
+    const label=node('label','Web application address','target-label');
     label.htmlFor='execution-target';
     const target=node('input');
     target.id='execution-target';
     target.type='url';
     target.className='target-input';
-    target.placeholder='Example: http://127.0.0.1:3000/';
+    const origins=policy.allowedOrigins||[];
+    target.placeholder=origins[0] ? `${origins[0]}/` : 'No web application addresses are enabled';
     target.required=true;
     target.setAttribute('aria-describedby','execution-target-help');
     const button=node('button','Create draft manifest');
-    const output=node('p','Enter the base URL where the application under test is running. It must use an origin allowed by the API configuration.','form-message');
+    const configured=origins.length
+      ? `Allowed web application addresses: ${origins.join(' · ')}. You may add a page path after one of these addresses.`
+      : 'No web application address is enabled. Set QUALITY_EXECUTION_ALLOWED_ORIGINS, then recreate the API and worker.';
+    const output=node('p',configured,'form-message');
     output.id='execution-target-help';
-    create.append(label,target,button,output);
+    if(!origins.length){target.disabled=true;button.disabled=true;}
+    const examples=node('p','Example for a Docker-hosted app on this Mac: http://host.docker.internal:3000/','execution-example');
+    create.append(intro,label,target,button,output,examples);
     create.onsubmit=async event=>{
       event.preventDefault();button.disabled=true;output.textContent='Creating draft manifest…';
       try{await request(`/bff/jobs/${job.id}/execution-requests`,{method:'POST',body:JSON.stringify({target:target.value})});await selectJob(job.id)}
       catch(error){output.className='form-message error';output.textContent=error.message;button.disabled=false}
     };
     s.append(create);
-    if(!data.items.length)s.append(message('No execution request','Start by entering the URL of the application you want to test. You will add selectors and assertions to the generated draft next.'));
+    if(!data.items.length)s.append(message('What happens next','After you create a draft, add the browser interactions—clicks, form entries, and visible results—to the manifest. Then validate, approve, and queue it.'));
     data.items.forEach(item=>s.append(executionCard(item,job)));
   }catch(error){s.replaceChildren(node('h3','Reviewed execution'),message('Unable to load execution requests',error.message,'gap'))}
 }

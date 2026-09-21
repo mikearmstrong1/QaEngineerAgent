@@ -272,6 +272,11 @@ try
         var execution = await executions.GetAsync(id, ct);
         return execution is null ? Results.NotFound() : Results.Ok(execution);
     });
+    app.MapGet("/execution-policy", (ExecutionOptions execution) => Results.Ok(new
+    {
+        allowedOrigins = execution.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Distinct(StringComparer.Ordinal).Order().ToArray(),
+        supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" }
+    }));
     app.MapPut("/execution-requests/{id}/manifest", async (string id, UpdateExecutionManifest input, ExecutionRequestService executions, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });

@@ -6,6 +6,10 @@
 }
 .execution-create .form-message { grid-column: 1 / -1; margin-top: 0; }
 .target-label { grid-column: 1 / -1; font-weight: 750; }
+.execution-intro { grid-column: 1 / -1; background: #10201c; border: 1px solid #31594f; border-radius: 10px; padding: 13px; }
+.execution-intro strong { color: var(--mint); }
+.execution-intro p, .execution-example { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.execution-example { grid-column: 1 / -1; }
 .target-input, .reviewer-input { text-transform: none; }
 .manifest-editor {
   min-height: 300px;
