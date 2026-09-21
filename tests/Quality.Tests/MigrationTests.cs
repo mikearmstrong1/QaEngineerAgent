@@ -23,7 +23,7 @@ public sealed class MigrationTests
             await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => store.InitializeAsync(default)));
             Assert.Equal(job.Id, (await store.GetAsync(job.Id, default))!.Id);
             await using var count = source.CreateCommand("SELECT count(*) FROM quality_schema_migrations");
-            Assert.Equal(3L, await count.ExecuteScalarAsync());
+            Assert.Equal(4L, await count.ExecuteScalarAsync());
             await Execute(source, "UPDATE quality_schema_migrations SET sha256='modified'");
             await Assert.ThrowsAsync<InvalidOperationException>(() => store.InitializeAsync(default));
             Assert.NotNull(await store.GetAsync(job.Id, default));
@@ -37,7 +37,7 @@ public sealed class MigrationTests
         {
             var store = new PostgresJobStore(source);
             await store.InitializeAsync(default);
-            await Execute(source, "INSERT INTO quality_schema_migrations(version, sha256) VALUES (4, 'future')");
+            await Execute(source, "INSERT INTO quality_schema_migrations(version, sha256) VALUES (5, 'future')");
             await Assert.ThrowsAsync<InvalidOperationException>(() => store.InitializeAsync(default));
             await Execute(source, "DELETE FROM quality_schema_migrations WHERE version=1");
             await Assert.ThrowsAsync<InvalidOperationException>(() => store.InitializeAsync(default));

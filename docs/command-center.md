@@ -9,6 +9,7 @@ Open [http://127.0.0.1:5081](http://127.0.0.1:5081) after starting Compose. The 
 - Jira-key submission
 - live polling through normalization and planning
 - requirement, acceptance-criterion, test-case, assumption, coverage-gap, and planning-metadata review
+- durable execution requests with manifest editing, server-side validation, optimistic revision checks, exact-hash approval, reviewer identity, and launch/status
 - execution history for the selected plan, including status, automatic triage, evidence preview, and artifact download
 - explicit human classification of failed runs with a required review reason
 - regression patch creation, exact diff review, and explicit application to a configured test repository for eligible passing runs
@@ -27,9 +28,20 @@ Mutating BFF calls require the non-simple `X-Command-Center: 1` header and JSON 
 
 The saved review is attached to the run. It does not change the execution result or promote regression coverage. The web form accepts only completed failing runs and uses the same `RegressionPromotion.ClassifyFailureAsync` service as the terminal command.
 
+## Prepare and launch an execution
+
+1. Select a completed planning job and enter an allowlisted target under **Reviewed execution**.
+2. Select **Prepare manifest**. The saved draft contains every planned test with empty steps.
+3. Add supported actions, selectors, values, and at least one assertion per selected test.
+4. Select **Validate and save manifest**. Server validation binds it to the saved plan and advances its revision.
+5. Review the complete JSON, target, and displayed SHA-256. Enter the reviewer identity, confirm the exact version, and approve it.
+6. Select **Queue approved execution**. The durable worker claims the request, verifies the approved hash against the persisted bytes, starts Playwright, publishes remote artifacts when configured, and updates the displayed status.
+
+Any saved edit clears the previous approval. Concurrent edits with a stale revision are rejected instead of overwriting a newer version. A worker interruption never replays potentially consequential browser actions: after the bounded lease expires, the request becomes `InfrastructureFailed` for review. TestRun metadata is shared through PostgreSQL while runner inputs and large evidence remain in the execution volume and optional object store.
+
 ## Terminal parity
 
-Reviewed Playwright execution remains available through the documented CLI workflow. Failure classification and regression patch creation are available in both interfaces. The Command Center additionally previews and applies a reviewed patch to the configured target repository. Web controls invoke the same application services and preserve review hashes, promotion gates, and terminal commands.
+Reviewed Playwright execution remains available through both the versioned `execution-*` commands and the original stateless CLI workflow. Failure classification and regression patch creation are available in both interfaces. The Command Center additionally previews and applies a reviewed patch to the configured target repository. Web controls invoke the same application services and preserve review hashes, promotion gates, and terminal commands.
 
 ## Promote a passing run
 

@@ -26,6 +26,28 @@ internal static class PostgresMigrations
         DROP INDEX IF EXISTS ix_quality_jobs_pending;
         CREATE INDEX ix_quality_jobs_pending ON quality_jobs(created_at)
             WHERE status NOT IN ('Completed', 'Failed', 'Cancelled');
+        """, """
+        CREATE TABLE IF NOT EXISTS quality_execution_requests (
+            id text PRIMARY KEY,
+            job_id text NOT NULL REFERENCES quality_jobs(id),
+            created_at timestamptz NOT NULL,
+            status text NOT NULL,
+            revision bigint NOT NULL,
+            lease_token text NULL,
+            lease_until timestamptz NULL,
+            document jsonb NOT NULL
+        );
+        CREATE INDEX ix_quality_execution_requests_job
+            ON quality_execution_requests(job_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS quality_test_runs (
+            id text PRIMARY KEY,
+            test_plan_id text NOT NULL,
+            started_at timestamptz NOT NULL,
+            status text NOT NULL,
+            document jsonb NOT NULL
+        );
+        CREATE INDEX ix_quality_test_runs_plan
+            ON quality_test_runs(test_plan_id, started_at DESC);
         """];
 
     public static async Task ApplyAsync(NpgsqlDataSource source, CancellationToken ct)
