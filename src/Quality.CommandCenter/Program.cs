@@ -74,6 +74,12 @@ app.MapPut("/bff/execution-requests/{id}/manifest", async Task<IResult> (string 
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
     return await ForwardAsync(factory, HttpMethod.Put, $"/execution-requests/{id}/manifest", JsonContent.Create(input), ct);
 });
+app.MapPost("/bff/execution-requests/{id}/inspect", async Task<IResult> (string id, HttpRequest request, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/inspect", null, ct);
+});
 app.MapPost("/bff/execution-requests/{id}/approve", async Task<IResult> (string id, HttpRequest request, ApproveExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);

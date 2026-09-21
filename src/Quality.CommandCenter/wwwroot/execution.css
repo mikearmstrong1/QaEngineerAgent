@@ -18,6 +18,12 @@
   tab-size: 2;
 }
 .execution-card > .compact { width: auto; margin-top: 12px; }
+.inspection-box { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 15px; }
+.control-list { display: grid; gap: 7px; margin-top: 12px; max-height: 320px; overflow: auto; }
+.control-row { text-align: left; background: #08110f; color: var(--ink); border: 1px solid var(--line); padding: 10px; }
+.control-row:hover { border-color: var(--mint); }
+.control-row strong, .control-selector { display: block; }
+.control-selector { color: var(--mint); font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; margin-top: 4px; overflow-wrap: anywhere; }
 .status.Approved, .status.Passed { color: var(--mint); border-color: #28745f; }
 .status.AwaitingApproval, .status.Draft, .status.Queued, .status.Running { color: var(--amber); border-color: #6e592e; }
 @media (max-width: 620px) { .execution-create { grid-template-columns: 1fr; } }

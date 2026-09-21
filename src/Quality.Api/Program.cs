@@ -277,6 +277,12 @@ try
         allowedOrigins = execution.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Distinct(StringComparer.Ordinal).Order().ToArray(),
         supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" }
     }));
+    app.MapPost("/execution-requests/{id}/inspect", async (string id, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try { return Results.Ok(await executions.InspectAsync(id, inspector, ct)); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["inspection"] = [ex.Message] }); }
+    });
     app.MapPut("/execution-requests/{id}/manifest", async (string id, UpdateExecutionManifest input, ExecutionRequestService executions, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
@@ -547,6 +553,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         execution["NodeExecutable"] ?? "node"));
     services.AddSingleton<PlaywrightTestExecutor>();
+    services.AddSingleton<IUiInspector, PlaywrightUiInspector>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<IReviewedTestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<ExecutionRequestService>();

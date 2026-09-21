@@ -43,6 +43,14 @@ public sealed class ExecutionRequestService(
     public Task<IReadOnlyList<ExecutionRequest>> ListByJobAsync(string jobId, CancellationToken ct)
         => requests.ListByJobAsync(jobId, ct);
 
+    public async Task<UiInspection> InspectAsync(string id, IUiInspector inspector, CancellationToken ct)
+    {
+        var request = await RequiredAsync(id, ct);
+        if (request.Status is not ExecutionRequestStatus.Draft and not ExecutionRequestStatus.AwaitingApproval)
+            throw new ArgumentException("Only an unapproved draft can be inspected");
+        return await inspector.InspectAsync(new Uri(request.Target, UriKind.Absolute), ct);
+    }
+
     public async Task<ExecutionRequest> UpdateManifestAsync(string id, long revision, byte[] manifestBytes, CancellationToken ct)
     {
         if (manifestBytes.Length is 0 or > 1024 * 1024) throw new ArgumentException("Manifest must contain 1-1048576 bytes");
