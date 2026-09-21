@@ -1,0 +1,18 @@
+.execution-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+.execution-create .form-message { grid-column: 1 / -1; margin-top: 0; }
+.target-input, .reviewer-input { text-transform: none; }
+.manifest-editor {
+  min-height: 300px;
+  margin-top: 14px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 2;
+}
+.execution-card > .compact { width: auto; margin-top: 12px; }
+.status.Approved, .status.Passed { color: var(--mint); border-color: #28745f; }
+.status.AwaitingApproval, .status.Draft, .status.Queued, .status.Running { color: var(--amber); border-color: #6e592e; }
+@media (max-width: 620px) { .execution-create { grid-template-columns: 1fr; } }

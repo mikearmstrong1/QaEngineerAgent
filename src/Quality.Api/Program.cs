@@ -10,10 +10,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "execution-create" or "execution-list" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -62,6 +62,43 @@ try
     await using var app = builder.Build();
     await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
     var jobs = app.Services.GetRequiredService<JobService>();
+    if (mode.StartsWith("execution-", StringComparison.Ordinal))
+    {
+        var service = app.Services.GetRequiredService<ExecutionRequestService>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+        ExecutionRequest result;
+        if (mode == "execution-create")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--job", "--target"]);
+            result = await service.CreateAsync(parsed["--job"], parsed["--target"], timeout.Token);
+        }
+        else if (mode == "execution-list")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--job"]);
+            Console.WriteLine(JsonSerializer.Serialize(new { items = await service.ListByJobAsync(parsed["--job"], timeout.Token) }, ContractJson.Options));
+            return 0;
+        }
+        else
+        {
+            var required = mode == "execution-update" ? new[] { "--id", "--manifest", "--revision" }
+                : mode == "execution-approve" ? ["--id", "--revision", "--sha256", "--reviewer"]
+                : ["--id", "--revision"];
+            var parsed = ParseOptions(args.Skip(1).ToArray(), required);
+            if (!long.TryParse(parsed["--revision"], out var revision) || revision < 0)
+                throw new ArgumentException("revision must be a non-negative integer");
+            if (mode == "execution-update")
+            {
+                var path = parsed["--manifest"];
+                if (!File.Exists(path) || new FileInfo(path).Length > 1024 * 1024) throw new ArgumentException("Manifest is missing or too large");
+                result = await service.UpdateManifestAsync(parsed["--id"], revision, await File.ReadAllBytesAsync(path, timeout.Token), timeout.Token);
+            }
+            else if (mode == "execution-approve")
+                result = await service.ApproveAsync(parsed["--id"], revision, parsed["--sha256"], parsed["--reviewer"], timeout.Token);
+            else result = await service.LaunchAsync(parsed["--id"], revision, timeout.Token);
+        }
+        Console.WriteLine(JsonSerializer.Serialize(result, ContractJson.Options));
+        return result.Status is ExecutionRequestStatus.Failed or ExecutionRequestStatus.InfrastructureFailed or ExecutionRequestStatus.TimedOut ? 1 : 0;
+    }
     if (mode is "promote-regression" or "classify-failure")
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
@@ -216,6 +253,50 @@ try
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
         var job = await jobs.GetAsync(id, ct);
         return job is null ? Results.NotFound() : Results.Ok(job);
+    });
+    app.MapPost("/jobs/{id}/execution-requests", async (string id, CreateExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        try { return Results.Created("/execution-requests", await executions.CreateAsync(id, input.Target ?? "", ct)); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["execution"] = [ex.Message] }); }
+        catch (UriFormatException) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["execution"] = ["Target must be an absolute allowlisted HTTP(S) URL"] }); }
+    });
+    app.MapGet("/jobs/{id}/execution-requests", async (string id, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        return Results.Ok(new { items = await executions.ListByJobAsync(id, ct) });
+    });
+    app.MapGet("/execution-requests/{id}", async (string id, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        var execution = await executions.GetAsync(id, ct);
+        return execution is null ? Results.NotFound() : Results.Ok(execution);
+    });
+    app.MapPut("/execution-requests/{id}/manifest", async (string id, UpdateExecutionManifest input, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(input.Manifest.GetRawText());
+            return Results.Ok(await executions.UpdateManifestAsync(id, input.Revision, bytes, ct));
+        }
+        catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["manifest"] = [ex.Message] }); }
+        catch (JsonException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["manifest"] = [ex.Message] }); }
+    });
+    app.MapPost("/execution-requests/{id}/approve", async (string id, ApproveExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try { return Results.Ok(await executions.ApproveAsync(id, input.Revision, input.ReviewedManifestHash ?? "", input.Reviewer ?? "", ct)); }
+        catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["approval"] = [ex.Message] }); }
+    });
+    app.MapPost("/execution-requests/{id}/launch", async (string id, LaunchExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try { return Results.Accepted($"/execution-requests/{id}", await executions.LaunchAsync(id, input.Revision, ct)); }
+        catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["launch"] = [ex.Message] }); }
     });
     app.MapGet("/jobs/{id}/runs", async (string id, ITestRunStore runs, CancellationToken ct) =>
     {
@@ -372,9 +453,14 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton(_ => NpgsqlDataSource.Create(connection));
         services.AddSingleton<PostgresJobStore>();
         services.AddSingleton<IJobStore>(sp => new MeteredJobStore(sp.GetRequiredService<PostgresJobStore>(), sp.GetRequiredService<JobMetrics>()));
+        services.AddSingleton<IExecutionRequestStore, PostgresExecutionRequestStore>();
     }
     else if (storeKind.Equals("File", StringComparison.OrdinalIgnoreCase))
-        services.AddSingleton<IJobStore>(sp => new MeteredJobStore(new FileJobStore(configuration["Quality:DataDirectory"] ?? "./data/jobs", sp.GetRequiredService<TimeProvider>()), sp.GetRequiredService<JobMetrics>()));
+    {
+        var dataDirectory = configuration["Quality:DataDirectory"] ?? "./data/jobs";
+        services.AddSingleton<IJobStore>(sp => new MeteredJobStore(new FileJobStore(dataDirectory, sp.GetRequiredService<TimeProvider>()), sp.GetRequiredService<JobMetrics>()));
+        services.AddSingleton<IExecutionRequestStore>(new FileExecutionRequestStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "execution-requests")));
+    }
     else throw new ArgumentException("Quality__Store must be File or Postgres");
     var sourceKind = configuration["Quality:Requirements:Mode"] ?? "Stub";
     if (sourceKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))
@@ -447,7 +533,10 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<RegressionPromotion>();
     var execution = configuration.GetSection("Quality:Execution");
     var workspace = Path.GetFullPath(execution["Workspace"] ?? Directory.GetCurrentDirectory());
-    services.AddSingleton<ITestRunStore>(new FileTestRunStore(execution["RunDirectory"] ?? Path.Combine(workspace, "data/executions")));
+    var runDirectory = execution["RunDirectory"] ?? Path.Combine(workspace, "data/executions");
+    if (storeKind.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<ITestRunStore>(sp => new PostgresTestRunStore(sp.GetRequiredService<NpgsqlDataSource>(), runDirectory));
+    else services.AddSingleton<ITestRunStore>(new FileTestRunStore(runDirectory));
     services.AddSingleton<ArtifactContentReader>();
     services.AddSingleton(new ExecutionOptions(workspace,
         (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
@@ -455,12 +544,20 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<PlaywrightTestExecutor>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<IReviewedTestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
+    services.AddSingleton<ExecutionRequestService>();
     services.AddSingleton<JobService>();
     if (runWorker)
+    {
         services.AddHostedService<JobWorker>();
+        services.AddHostedService<ExecutionWorker>();
+    }
 }
 
 public partial class Program { }
 public sealed record FailureReviewRequest(string? Classification, string? Reason);
 public sealed record RegressionPromotionRequest(string? ReviewedManifestHash);
 public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256);
+public sealed record CreateExecutionRequest(string? Target);
+public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
+public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
+public sealed record LaunchExecutionRequest(long Revision);

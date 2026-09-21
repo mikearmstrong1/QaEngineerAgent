@@ -2,7 +2,29 @@
 
 Step 3 adds a working Chromium execution adapter. Planning jobs still stop at `Completed`; execution is a separate, explicit CLI operation and produces its own durable `TestRun`. No test is run automatically after planning.
 
-## Prepare, review and execute
+## Durable prepare, review and execute
+
+The recommended workflow persists a versioned execution request. It can be completed from Command Center or with the equivalent CLI commands below. Optimistic revisions reject stale edits, saving a valid manifest clears any prior approval, and launch uses only the exact approved bytes.
+
+```sh
+dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll execution-create \
+  --job JOB_ID --target http://127.0.0.1:3000
+
+dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll execution-update \
+  --id REQUEST_ID --manifest execution.json --revision REVISION
+
+dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll execution-approve \
+  --id REQUEST_ID --revision REVISION --sha256 MANIFEST_SHA256 --reviewer REVIEWER_ID
+
+dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll execution-launch \
+  --id REQUEST_ID --revision REVISION
+```
+
+`execution-list --job JOB_ID` retrieves the current requests and revisions. `execution-launch` queues the approved version; the worker performs the run. PostgreSQL deployments store requests in `quality_execution_requests` and TestRun metadata in `quality_test_runs`; the local fallback uses a sibling `execution-requests` directory and file-backed run metadata.
+
+Claims are atomic and bounded by a fifteen-minute lease, covering the maximum browser and artifact-publication budgets. An expired `Running` claim becomes `InfrastructureFailed` and is not automatically replayed because prior clicks or fills may have produced side effects. A reviewer can create a new request when replay is safe.
+
+The original stateless commands remain available for scripts that already use them:
 
 Build the Release application and install the repository's pinned npm dependencies and Chromium as described in the README. Run these commands from the repository root:
 
@@ -12,7 +34,7 @@ dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll prepare-execution \
   --job JOB_ID --target http://127.0.0.1:3000 > execution.json
 ```
 
-The draft contains the plan ID, a hash of the persisted plan, test IDs and empty steps. Supply concrete selectors, actions and expected results from the application and requirement, then review the completed file. Empty drafts cannot execute. Tests can be a reviewed subset of the plan; a passing run only covers those selected IDs.
+Both workflows create a draft containing the plan ID, a hash of the persisted plan, test IDs and empty steps. Supply concrete selectors, actions and expected results from the application and requirement, then review the completed manifest. Empty drafts cannot execute. Tests can be a reviewed subset of the plan; a passing run only covers those selected IDs.
 
 A test entry uses this structure:
 
@@ -64,7 +86,7 @@ Each directory retains:
 - `report.json`, `summary.json`, `result.json`, `process.log`: actual execution evidence.
 - `artifacts/`: failure screenshots, traces and any Playwright error context.
 
-Artifact keys are paths relative to the execution store, prefixed with the run ID. They identify local files; optional [MinIO publishing](minio-artifacts.md) adds remote metadata in `storedArtifacts` while preserving local keys. Run persistence uses atomic file replacement and is separate from the planning job's File/Postgres store. Shared deployments must share the run directory or mount the same volume to retrieve results.
+Artifact keys are paths relative to the execution store, prefixed with the run ID. They identify local files; optional [MinIO publishing](minio-artifacts.md) adds remote metadata in `storedArtifacts` while preserving local keys. Runner inputs and evidence use atomic file replacement in the run directory. PostgreSQL deployments additionally persist queryable TestRun metadata, so API and worker processes share status even when they are separate hosts. They must still share the run volume—or use uploaded MinIO/Azure associations—to read the underlying evidence.
 
 `Passed` requires an actual successful Playwright report, exactly the selected tests, all tests passed, and a zero process exit. Failed assertions/test errors are `Failed`; `failureClassification` adds triage and explicit review without changing that status; see [regression promotion](regression-promotion.md). Global timeout is `TimedOut`; Ctrl-C is `Cancelled`; startup, missing/invalid reports and runner failures are `InfrastructureFailed`. Every terminal result gets a finish time. `execute` exits 0 only for `Passed`, 1 for nonpassing execution, and 2 for manifest/argument rejection. `get-run` returns 3 when the ID is absent.
 

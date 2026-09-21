@@ -82,7 +82,7 @@ Check each section before using the plan:
 - **Coverage gaps:** Decide whether the Jira story needs more detail.
 - **Model metadata:** Confirm the plan came from the expected provider and model.
 
-The Command Center creates and reviews plans. After a reviewed terminal execution, it also shows runs and lets a person classify failures. It does not automatically run tests or change source code.
+The Command Center creates and reviews plans, persists versioned execution manifests, records exact-hash approval, launches the approved bytes, shows runs and evidence, and lets a person classify failures. It does not run an unapproved manifest or change source code automatically.
 
 ## Everyday commands
 

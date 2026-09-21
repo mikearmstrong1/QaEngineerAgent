@@ -21,6 +21,12 @@ builder.Services.AddHttpClient("quality-artifacts", client =>
     client.Timeout = TimeSpan.FromMinutes(6);
     if (!string.IsNullOrEmpty(apiKey)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 });
+builder.Services.AddHttpClient("quality-execution", client =>
+{
+    client.BaseAddress = apiBase;
+    client.Timeout = TimeSpan.FromMinutes(6);
+    if (!string.IsNullOrEmpty(apiKey)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+});
 
 var app = builder.Build();
 app.UseDefaultFiles();
@@ -46,6 +52,39 @@ app.MapGet("/bff/jobs/{id}/runs", async (string id, IHttpClientFactory factory, 
 {
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/runs", null, ct);
+});
+app.MapGet("/bff/jobs/{id}/execution-requests", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/execution-requests", null, ct);
+});
+app.MapPost("/bff/jobs/{id}/execution-requests", async Task<IResult> (string id, HttpRequest request, CreateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    if (!Uri.TryCreate(input.Target, UriKind.Absolute, out var target) || target.Scheme is not ("http" or "https") || target.UserInfo.Length != 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["target"] = ["Enter an absolute HTTP(S) target without credentials"] });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/jobs/{id}/execution-requests", JsonContent.Create(input), ct);
+});
+app.MapPut("/bff/execution-requests/{id}/manifest", async Task<IResult> (string id, HttpRequest request, UpdateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardAsync(factory, HttpMethod.Put, $"/execution-requests/{id}/manifest", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/execution-requests/{id}/approve", async Task<IResult> (string id, HttpRequest request, ApproveExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    if (!Regex.IsMatch(input.ReviewedManifestHash ?? "", "^[a-f0-9]{64}$") || string.IsNullOrWhiteSpace(input.Reviewer))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["approval"] = ["Confirm the exact SHA-256 and provide a reviewer identity"] });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/approve", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/execution-requests/{id}/launch", async Task<IResult> (string id, HttpRequest request, LaunchExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/launch", JsonContent.Create(input), ct);
 });
 app.MapGet("/bff/runs/{id}/artifacts", async (string id, string? key, bool? download, HttpContext context,
     IHttpClientFactory factory, CancellationToken ct) =>
@@ -122,6 +161,19 @@ static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod m
     catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return Results.Json(new { error = "quality_api_timeout" }, statusCode: 504); }
 }
 
+static async Task<IResult> ForwardExecutionAsync(IHttpClientFactory factory, HttpMethod method, string path, HttpContent? content, CancellationToken ct)
+{
+    try
+    {
+        using var request = new HttpRequestMessage(method, path) { Content = content };
+        using var response = await factory.CreateClient("quality-execution").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        var body = await response.Content.ReadAsByteArrayAsync(ct);
+        return Results.Content(Encoding.UTF8.GetString(body), response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (HttpRequestException) { return Results.Json(new { error = "quality_api_unavailable" }, statusCode: 503); }
+    catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return Results.Json(new { error = "execution_timeout" }, statusCode: 504); }
+}
+
 static async Task ForwardArtifactAsync(IHttpClientFactory factory, HttpContext context, string runId, string key, bool download, CancellationToken ct)
 {
     try
@@ -154,5 +206,9 @@ sealed record SubmitRequest(string? JiraKey);
 sealed record FailureReview(string? Classification, string? Reason);
 sealed record PromotionReview(string? ReviewedManifestHash);
 sealed record ApplyProposalReview(string? ReviewedPatchSha256);
+sealed record CreateExecution(string? Target);
+sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
+sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);
+sealed record LaunchExecution(long Revision);
 
 public partial class Program { }
