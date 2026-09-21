@@ -5,6 +5,7 @@
   margin-bottom: 14px;
 }
 .execution-create .form-message { grid-column: 1 / -1; margin-top: 0; }
+.target-label { grid-column: 1 / -1; font-weight: 750; }
 .target-input, .reviewer-input { text-transform: none; }
 .manifest-editor {
   min-height: 300px;
