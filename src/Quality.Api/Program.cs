@@ -283,6 +283,13 @@ try
         try { return Results.Ok(await executions.InspectAsync(id, inspector, ct)); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["inspection"] = [ex.Message] }); }
     });
+    app.MapPost("/execution-requests/{id}/prepare-manifest", async (string id, PrepareExecutionManifest input, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try { return Results.Ok(await executions.PrepareManifestAsync(id, input.Revision, inspector, ct)); }
+        catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["manifest"] = [ex.Message] }); }
+    });
     app.MapPut("/execution-requests/{id}/manifest", async (string id, UpdateExecutionManifest input, ExecutionRequestService executions, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
@@ -572,4 +579,5 @@ public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256)
 public sealed record CreateExecutionRequest(string? Target);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
+public sealed record PrepareExecutionManifest(long Revision);
 public sealed record LaunchExecutionRequest(long Revision);

@@ -51,6 +51,18 @@ public sealed class ExecutionRequestService(
         return await inspector.InspectAsync(new Uri(request.Target, UriKind.Absolute), ct);
     }
 
+    public async Task<ExecutionRequest> PrepareManifestAsync(string id, long revision, IUiInspector inspector, CancellationToken ct)
+    {
+        var current = await RequiredAsync(id, ct);
+        if (current.Revision != revision) throw new ExecutionRequestConflictException();
+        if (current.Status is not ExecutionRequestStatus.Draft and not ExecutionRequestStatus.AwaitingApproval)
+            throw new ArgumentException("Only an unapproved draft can be prepared");
+        var job = await CompletedJobAsync(current.JobId, ct);
+        var inspection = await inspector.InspectAsync(new Uri(current.Target, UriKind.Absolute), ct);
+        var manifest = ReviewedManifestBuilder.Build(job.TestPlan!, current.Target, inspection);
+        return await UpdateManifestAsync(id, revision, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, ContractJson.Options)), ct);
+    }
+
     public async Task<ExecutionRequest> UpdateManifestAsync(string id, long revision, byte[] manifestBytes, CancellationToken ct)
     {
         if (manifestBytes.Length is 0 or > 1024 * 1024) throw new ArgumentException("Manifest must contain 1-1048576 bytes");

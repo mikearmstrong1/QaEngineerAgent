@@ -11,13 +11,14 @@ const originFor = value => new URL(value).origin;
     await context.route('**/*', route => origins.has(originFor(route.request().url())) ? route.continue() : route.abort());
     const page = await context.newPage();
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    const controls = await page.locator('button,input,select,textarea,a,[role="button"],[role="link"],[role="checkbox"],[role="textbox"]').evaluateAll(nodes => {
+    const controls = await page.locator('h1,button,input,select,textarea,a,[role="button"],[role="link"],[role="checkbox"],[role="textbox"]').evaluateAll(nodes => {
       const selectorFor = element => {
         const escape = value => CSS.escape(value);
         if (element.dataset.testid) return `[data-testid="${escape(element.dataset.testid)}"]`;
         if (element.id) return `#${escape(element.id)}`;
         if (element.getAttribute('aria-label')) return `${element.tagName.toLowerCase()}[aria-label="${escape(element.getAttribute('aria-label'))}"]`;
         if (element.getAttribute('name')) return `${element.tagName.toLowerCase()}[name="${escape(element.getAttribute('name'))}"]`;
+        if (element.tagName.toLowerCase() === 'h1') return 'h1';
         return element.tagName.toLowerCase();
       };
       return nodes.filter(node => { const style = getComputedStyle(node); return style.display !== 'none' && style.visibility !== 'hidden'; })

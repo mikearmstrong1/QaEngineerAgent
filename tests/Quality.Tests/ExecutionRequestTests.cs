@@ -106,6 +106,37 @@ public sealed class ExecutionRequestTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task PrepareManifestBuildsReadOnlyAssertionsAndStillRequiresApproval()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-execution-prepare-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var jobs = new FileJobStore(Path.Combine(root, "jobs"), TimeProvider.System);
+            await jobs.InitializeAsync(default);
+            var plan = Plan();
+            var now = DateTimeOffset.UtcNow;
+            var job = new QualityJob(Guid.NewGuid().ToString("N"), new("stub", "REQ-1"), JobStatus.Completed,
+                now, now, 0, null, plan, [], [], null, null, null);
+            await jobs.CreateAsync(job, default);
+            var service = new ExecutionRequestService(new FileExecutionRequestStore(Path.Combine(root, "requests")), jobs,
+                new CapturingExecutor(), new(root, ["http://127.0.0.1:8000"]), TimeProvider.System);
+            var request = await service.CreateAsync(job.Id, "http://127.0.0.1:8000/", default);
+
+            request = await service.PrepareManifestAsync(request.Id, request.Revision,
+                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality Command Center", "h1"), new("input", "input", "Issue key", "#jira-key")])), default);
+
+            Assert.Equal(ExecutionRequestStatus.AwaitingApproval, request.Status);
+            var manifest = JsonSerializer.Deserialize<ExecutionManifest>(request.ManifestJson, ContractJson.Options)!;
+            Assert.Equal(["goto", "expectText", "expectVisible"], manifest.Tests.Single().Steps.Select(step => step.Action));
+            Assert.Equal("Quality Command Center", manifest.Tests.Single().Steps[1].Value);
+            Assert.Equal("#jira-key", manifest.Tests.Single().Steps[2].Selector);
+            Assert.DoesNotContain(manifest.Tests.Single().Steps, step => step.Action is "click" or "fill");
+            await Assert.ThrowsAsync<ArgumentException>(() => service.LaunchAsync(request.Id, request.Revision, default));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private static TestPlan Plan() => new("plan-1", "requirement-1", "Plan",
         [new("TC-1", "requirement-1", "Page", "HappyPath", "P1", ["AC-1"], [new("Open", "Visible")])],
         [], [], "plan/v2", false);
@@ -159,5 +190,10 @@ public sealed class ExecutionRequestTests
             var now = DateTimeOffset.UtcNow;
             return Task.FromResult(new TestRun(RunId, plan.Id, "Passed", now, now, [], "test", ManifestHash: reviewedSha256));
         }
+    }
+
+    private sealed class StaticInspector(UiInspection result) : IUiInspector
+    {
+        public Task<UiInspection> InspectAsync(Uri target, CancellationToken ct) => Task.FromResult(result);
     }
 }
