@@ -41,9 +41,11 @@ Any saved edit clears the previous approval. Concurrent edits with a stale revis
 
 ## Autonomous execution
 
-When an operator configures a named non-production policy, **Autonomous execution policies** appears under **Reviewed execution**. The registry is read-only: it shows the exact policy version, fingerprint, origins, actions, approval/launch settings, and canary budget currently enforced by the API. Select an eligible policy, enter a target covered by that policy, and choose **Start autonomous execution**.
+**Execution policies** appears below the recent-jobs list. It seeds `command-center-baseline` as a non-production, read-only/manual-launch policy for the local Command Center. Select an existing policy to view and edit it, or choose **New policy** to create one. Policy names are lowercase letters, digits, and hyphens; origins are absolute HTTP(S) origins without credentials; actions are selected explicitly. Policies are written atomically to the server-side execution volume and survive API restarts.
 
-The API then creates a durable request, performs its read-only page inspection, prepares a manifest, validates it against the policy, records the policy identity and fingerprint, and auto-approves it. A policy may auto-launch only its configured canary budget; later requests remain **Approved** and can be queued through the ordinary control. The browser cannot edit policies, widen a target/action allowlist, or bypass the policy validation.
+Automatic approval and launch are disabled until **Non-production only** is selected, and auto-launch also requires automatic approval. The API independently validates timeout and canary limits, origins, actions, and these relationships. The policy registry under **Reviewed execution** continues to show the exact fingerprint and policy enforced for an autonomous request. Select an eligible policy, enter a target covered by that policy, and choose **Start autonomous execution**.
+
+The API then creates a durable request, performs its read-only page inspection, prepares a manifest, validates it against the policy, records the policy identity and fingerprint, and auto-approves it. A policy may auto-launch only its configured canary budget; later requests remain **Approved** and can be queued through the ordinary control. The Command Center can manage policies, but all execution authorization remains API-side and policies never include credentials.
 
 ## Terminal parity
 

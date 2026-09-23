@@ -61,6 +61,7 @@ try
         mode == "api" && builder.Configuration.GetValue<bool>("Quality:RunWorker"));
     await using var app = builder.Build();
     await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+    if (mode == "api") await app.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
     var jobs = app.Services.GetRequiredService<JobService>();
     if (mode.StartsWith("execution-", StringComparison.Ordinal))
     {
@@ -272,12 +273,27 @@ try
         var execution = await executions.GetAsync(id, ct);
         return execution is null ? Results.NotFound() : Results.Ok(execution);
     });
-    app.MapGet("/execution-policy", (ExecutionOptions execution, ExecutionPolicyCatalog policies) => Results.Ok(new
+    app.MapGet("/execution-policy", (ExecutionOptions execution, ExecutionPolicyService policies) => Results.Ok(new
     {
         allowedOrigins = execution.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Distinct(StringComparer.Ordinal).Order().ToArray(),
         supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" },
         autonomousPolicies = policies.Describe()
     }));
+    app.MapGet("/execution-policies", (ExecutionPolicyService policies) => Results.Ok(new { items = policies.Describe() }));
+    app.MapPut("/execution-policies/{name}", async (string name, ExecutionPolicyInput input, ExecutionPolicyService policies, CancellationToken ct) =>
+    {
+        if (!string.Equals(name, input.Name, StringComparison.Ordinal))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["name"] = ["Policy name must match the URL"] });
+        try
+        {
+            var policy = new ExecutionPolicy(input.Name ?? "", input.Version ?? "", input.AllowedOrigins ?? [], input.AllowedActions ?? [],
+                input.MaxTimeoutSeconds, input.NonProduction, input.AutoApprove, input.AutoLaunch, input.CanaryMaxAutoLaunches);
+            await policies.SaveAsync(policy, ct);
+            return Results.Ok(new { items = policies.Describe() });
+        }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["policy"] = [ex.Message] }); }
+        catch (UriFormatException) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["policy"] = ["Allowed origins must be absolute HTTP(S) origins without credentials"] }); }
+    });
     app.MapPost("/jobs/{id}/autonomous-executions", async (string id, CreateAutonomousExecution input, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
@@ -568,7 +584,12 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         execution["NodeExecutable"] ?? "node"));
     var configuredPolicies = execution.GetSection("Policies").Get<ExecutionPolicy[]>()?
         .Where(policy => !string.IsNullOrWhiteSpace(policy.Name)).ToArray() ?? [];
-    services.AddSingleton(new ExecutionPolicyCatalog(configuredPolicies));
+    var baselinePolicy = new ExecutionPolicy("command-center-baseline", "v1", ["http://host.docker.internal:5081"],
+        ["goto", "expectText", "expectVisible"], 60, true, false, false, 0);
+    services.AddSingleton(new ExecutionPolicyCatalog());
+    services.AddSingleton(new FileExecutionPolicyStore(Path.Combine(runDirectory, "policies", "execution-policies.json")));
+    services.AddSingleton<ExecutionPolicyService>(sp => new ExecutionPolicyService(sp.GetRequiredService<ExecutionPolicyCatalog>(),
+        sp.GetRequiredService<FileExecutionPolicyStore>(), [baselinePolicy, ..configuredPolicies]));
     services.AddSingleton<PlaywrightTestExecutor>();
     services.AddSingleton<IUiInspector, PlaywrightUiInspector>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
@@ -588,6 +609,8 @@ public sealed record RegressionPromotionRequest(string? ReviewedManifestHash);
 public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256);
 public sealed record CreateExecutionRequest(string? Target);
 public sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
+public sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
+    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false, int CanaryMaxAutoLaunches = 0);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
 public sealed record PrepareExecutionManifest(long Revision);

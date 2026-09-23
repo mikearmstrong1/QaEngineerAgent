@@ -60,6 +60,15 @@ app.MapGet("/bff/jobs/{id}/execution-requests", async (string id, IHttpClientFac
 });
 app.MapGet("/bff/execution-policy", async (IHttpClientFactory factory, CancellationToken ct) =>
     await ForwardAsync(factory, HttpMethod.Get, "/execution-policy", null, ct));
+app.MapGet("/bff/execution-policies", async (IHttpClientFactory factory, CancellationToken ct) =>
+    await ForwardAsync(factory, HttpMethod.Get, "/execution-policies", null, ct));
+app.MapPut("/bff/execution-policies/{name}", async Task<IResult> (string name, HttpRequest request, ExecutionPolicyInput input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]{0,99}$")) return Results.BadRequest(new { error = "invalid_policy_name" });
+    if (!string.Equals(name, input.Name, StringComparison.Ordinal)) return Results.BadRequest(new { error = "policy_name_mismatch" });
+    return await ForwardAsync(factory, HttpMethod.Put, $"/execution-policies/{name}", JsonContent.Create(input), ct);
+});
 app.MapPost("/bff/jobs/{id}/execution-requests", async Task<IResult> (string id, HttpRequest request, CreateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -228,6 +237,8 @@ sealed record PromotionReview(string? ReviewedManifestHash);
 sealed record ApplyProposalReview(string? ReviewedPatchSha256);
 sealed record CreateExecution(string? Target);
 sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
+sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
+    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false, int CanaryMaxAutoLaunches = 0);
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);

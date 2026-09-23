@@ -36,7 +36,7 @@ ENV DOTNET_ROOT=/usr/share/dotnet PATH="/usr/share/dotnet:${PATH}" \
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY playwright ./playwright
-RUN npm ci && npm run build && rm -rf /root/.npm && mkdir -p /data/jobs /data/executions && chown -R pwuser:pwuser /data
+RUN npm ci && npm run build --workspace @quality/playwright && rm -rf /root/.npm && mkdir -p /data/jobs /data/executions && chown -R pwuser:pwuser /data
 COPY --from=dotnet-build /publish ./service
 COPY --from=dotnet-build /command-center ./command-center
 COPY schemas ./schemas
