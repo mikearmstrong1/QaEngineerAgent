@@ -77,7 +77,7 @@ function autonomousControls(job,policy,target,enabled){
 }
 function inspectionControls(item,job){
   const panel=node('div',undefined,'inspection-box');
-  panel.append(node('strong','Step 2 — build a safe draft from this page'),node('p','Build draft opens the approved page in a fresh read-only browser session and creates only navigation and visibility/text assertions. It never clicks, fills, submits, or records form values. Review every generated step before approval.','form-message'));
+  panel.append(node('strong','Step 2 — compile a reviewable draft from this page'),node('p','Build draft inventories the page read-only, then maps only exact planned labels to controls. It generates a click only for an explicit matched label and a fill only when the planned step supplies a quoted value. Unmatched steps stay out for review; it never submits a form during inspection.','form-message'));
   const prepare=node('button','Build draft from page','secondary compact');
   const prepared=node('p','Creates a reviewable starting point; it does not queue or run a test.','form-message');
   prepare.onclick=async()=>{prepare.disabled=true;prepared.className='form-message';prepared.textContent='Inspecting page and building draft…';try{await request(`/bff/execution-requests/${item.id}/prepare-manifest`,{method:'POST',body:JSON.stringify({revision:item.revision})});await selectJob(job.id)}catch(error){prepared.className='form-message error';prepared.textContent=error.message;prepare.disabled=false}};

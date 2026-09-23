@@ -138,6 +138,26 @@ public sealed class ExecutionRequestTests
     }
 
     [Fact]
+    public void ManifestBuilderMapsOnlyExplicitPlannedInteractionsToCapableControls()
+    {
+        var plan = new TestPlan("plan-steps", "requirement-1", "Plan",
+            [new("TC-1", "requirement-1", "Submit", "HappyPath", "P1", ["AC-1"],
+                [new("Enter Issue key with \"KAN-5\"", "The issue key is present"),
+                 new("Click Generate plan", "A plan is generated"),
+                 new("Complete the workflow", "Success")])], [], [], "plan/v2", false);
+        var inspection = new UiInspection("http://127.0.0.1:8000/", [
+            new("h1", "h1", "Quality Command Center", "h1"),
+            new("input", "input", "Issue key", "#jira-key", ["fill"]),
+            new("button", "button", "Generate plan", "#generate-plan", ["click"]) ]);
+
+        var manifest = ReviewedManifestBuilder.Build(plan, "http://127.0.0.1:8000/", inspection);
+
+        Assert.Equal(["goto", "expectText", "fill", "click", "expectVisible"], manifest.Tests.Single().Steps.Select(step => step.Action));
+        Assert.Contains(manifest.Tests.Single().Steps, step => step.Action == "fill" && step.Selector == "#jira-key" && step.Value == "KAN-5");
+        Assert.Contains(manifest.Tests.Single().Steps, step => step.Action == "click" && step.Selector == "#generate-plan");
+    }
+
+    [Fact]
     public async Task AutonomousPolicyPreparesApprovesAndQueuesOnlyAllowedManifest()
     {
         var root = Path.Combine(Path.GetTempPath(), "quality-execution-autonomous-" + Guid.NewGuid().ToString("N"));

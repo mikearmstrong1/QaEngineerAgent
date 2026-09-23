@@ -3,7 +3,10 @@ using System.Text.Json;
 
 namespace Quality.Orchestrator;
 
-public sealed record UiControl(string Tag, string Role, string Label, string Selector);
+public sealed record UiControl(string Tag, string Role, string Label, string Selector, string[]? Capabilities = null)
+{
+    public bool Supports(string capability) => (Capabilities ?? []).Contains(capability, StringComparer.Ordinal);
+}
 public sealed record UiInspection(string Target, UiControl[] Controls);
 public interface IUiInspector
 {
@@ -37,6 +40,6 @@ public sealed class PlaywrightUiInspector(ExecutionOptions options) : IUiInspect
         var inspection = JsonSerializer.Deserialize<UiInspection>(await output, Quality.Domain.ContractJson.Options)
             ?? throw new ArgumentException("UI inspection did not return controls");
         if (inspection.Target != target.AbsoluteUri || inspection.Controls.Length > 100) throw new ArgumentException("UI inspection result is invalid");
-        return inspection with { Controls = inspection.Controls.Where(c => c.Tag.Length <= 40 && c.Role.Length <= 80 && c.Label.Length <= 500 && c.Selector.Length <= 2000).ToArray() };
+        return inspection with { Controls = inspection.Controls.Where(c => c.Tag.Length <= 40 && c.Role.Length <= 80 && c.Label.Length <= 500 && c.Selector.Length <= 2000 && (c.Capabilities ?? []).Length <= 4).ToArray() };
     }
 }

@@ -21,10 +21,17 @@ const originFor = value => new URL(value).origin;
         if (element.tagName.toLowerCase() === 'h1') return 'h1';
         return element.tagName.toLowerCase();
       };
+      const capabilitiesFor = node => {
+        const tag = node.tagName.toLowerCase(), type = (node.getAttribute('type') || '').toLowerCase();
+        const capabilities = [];
+        if (!node.disabled && (tag === 'button' || tag === 'a' || node.getAttribute('role') === 'button' || type === 'checkbox')) capabilities.push('click');
+        if (!node.disabled && !node.readOnly && (tag === 'textarea' || (tag === 'input' && !['button','submit','checkbox','radio','hidden','file'].includes(type)))) capabilities.push('fill');
+        return capabilities;
+      };
       return nodes.filter(node => { const style = getComputedStyle(node); return style.display !== 'none' && style.visibility !== 'hidden'; })
         .slice(0, 100).map(node => ({
           tag: node.tagName.toLowerCase(), role: node.getAttribute('role') || (node.tagName.toLowerCase() === 'a' ? 'link' : node.tagName.toLowerCase()),
-          label: (node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.textContent || '').trim().slice(0, 500), selector: selectorFor(node)
+          label: (node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.textContent || '').trim().slice(0, 500), selector: selectorFor(node), capabilities: capabilitiesFor(node)
         }));
     });
     process.stdout.write(JSON.stringify({ target, controls }));
