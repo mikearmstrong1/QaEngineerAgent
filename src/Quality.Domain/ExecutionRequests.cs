@@ -33,4 +33,7 @@ public sealed record ExecutionRequest(
     string SchemaVersion = "1.0",
     string? LeaseToken = null,
     DateTimeOffset? LeaseUntil = null,
-    int Attempts = 0);
+    int Attempts = 0,
+    string? AutomationPolicy = null,
+    string? AutomationPolicyVersion = null,
+    string? AutomationPolicyHash = null);

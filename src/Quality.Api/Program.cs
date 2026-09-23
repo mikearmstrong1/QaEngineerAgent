@@ -272,11 +272,18 @@ try
         var execution = await executions.GetAsync(id, ct);
         return execution is null ? Results.NotFound() : Results.Ok(execution);
     });
-    app.MapGet("/execution-policy", (ExecutionOptions execution) => Results.Ok(new
+    app.MapGet("/execution-policy", (ExecutionOptions execution, ExecutionPolicyCatalog policies) => Results.Ok(new
     {
         allowedOrigins = execution.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Distinct(StringComparer.Ordinal).Order().ToArray(),
-        supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" }
+        supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" },
+        autonomousPolicies = policies.Describe()
     }));
+    app.MapPost("/jobs/{id}/autonomous-executions", async (string id, CreateAutonomousExecution input, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        try { return Results.Accepted("/execution-requests", await executions.CreateAutonomousAsync(id, input.Target ?? "", input.PolicyName ?? "", inspector, ct)); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["autonomousExecution"] = [ex.Message] }); }
+    });
     app.MapPost("/execution-requests/{id}/inspect", async (string id, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
@@ -559,6 +566,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton(new ExecutionOptions(workspace,
         (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         execution["NodeExecutable"] ?? "node"));
+    services.AddSingleton(new ExecutionPolicyCatalog(execution.GetSection("Policies").Get<ExecutionPolicy[]>() ?? []));
     services.AddSingleton<PlaywrightTestExecutor>();
     services.AddSingleton<IUiInspector, PlaywrightUiInspector>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
@@ -577,6 +585,7 @@ public sealed record FailureReviewRequest(string? Classification, string? Reason
 public sealed record RegressionPromotionRequest(string? ReviewedManifestHash);
 public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256);
 public sealed record CreateExecutionRequest(string? Target);
+public sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
 public sealed record PrepareExecutionManifest(long Revision);

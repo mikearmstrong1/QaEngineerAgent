@@ -137,6 +137,51 @@ public sealed class ExecutionRequestTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task AutonomousPolicyPreparesApprovesAndQueuesOnlyAllowedManifest()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-execution-autonomous-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var jobs = new FileJobStore(Path.Combine(root, "jobs"), TimeProvider.System);
+            await jobs.InitializeAsync(default);
+            var plan = Plan();
+            var now = DateTimeOffset.UtcNow;
+            var job = new QualityJob(Guid.NewGuid().ToString("N"), new("stub", "REQ-1"), JobStatus.Completed,
+                now, now, 0, null, plan, [], [], null, null, null);
+            await jobs.CreateAsync(job, default);
+            var policy = new ExecutionPolicy("command-center-smoke", "v1", ["http://127.0.0.1:8000"],
+                ["goto", "expectText", "expectVisible"], NonProduction: true, AutoApprove: true, AutoLaunch: true);
+            var service = new ExecutionRequestService(new FileExecutionRequestStore(Path.Combine(root, "requests")), jobs,
+                new CapturingExecutor(), new(root, ["http://127.0.0.1:8000"]), TimeProvider.System,
+                policies: new ExecutionPolicyCatalog([policy]));
+
+            var request = await service.CreateAutonomousAsync(job.Id, "http://127.0.0.1:8000/", policy.Name,
+                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
+
+            Assert.Equal(ExecutionRequestStatus.Queued, request.Status);
+            Assert.Equal(policy.Name, request.AutomationPolicy);
+            Assert.Equal(policy.Version, request.AutomationPolicyVersion);
+            Assert.Equal(policy.Fingerprint(), request.AutomationPolicyHash);
+            Assert.Equal(policy.ReviewerIdentity(), request.Approval!.Reviewer);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void AutonomousPolicyRejectsProductionAttestationAndUndeclaredActions()
+    {
+        var manifest = new ExecutionManifest("plan-1", ExecutionManifest.HashPlan(Plan()), "http://127.0.0.1:8000/",
+            [new("TC-1", [new("goto", null, "/"), new("click", "#save", null), new("expectVisible", "h1", null)])]);
+        var production = new ExecutionPolicy("not-production", "v1", ["http://127.0.0.1:8000"],
+            ["goto", "click", "expectVisible"], NonProduction: false, AutoApprove: true);
+        var restrictive = new ExecutionPolicy("assertions-only", "v1", ["http://127.0.0.1:8000"],
+            ["goto", "expectVisible"], NonProduction: true, AutoApprove: true);
+
+        Assert.Throws<ArgumentException>(() => production.ValidateManifest(manifest));
+        Assert.Throws<ArgumentException>(() => restrictive.ValidateManifest(manifest));
+    }
+
     private static TestPlan Plan() => new("plan-1", "requirement-1", "Plan",
         [new("TC-1", "requirement-1", "Page", "HappyPath", "P1", ["AC-1"], [new("Open", "Visible")])],
         [], [], "plan/v2", false);

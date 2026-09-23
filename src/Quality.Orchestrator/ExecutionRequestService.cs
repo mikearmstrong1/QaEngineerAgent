@@ -12,14 +12,15 @@ public sealed class ExecutionRequestService(
     ExecutionOptions options,
     TimeProvider clock,
     RunArtifactPublisher? publisher = null,
-    IArtifactStore? artifactStore = null)
+    IArtifactStore? artifactStore = null,
+    ExecutionPolicyCatalog? policies = null)
 {
     private static readonly JsonSerializerOptions StrictJson = new(ContractJson.Options)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    public async Task<ExecutionRequest> CreateAsync(string jobId, string target, CancellationToken ct)
+    public async Task<ExecutionRequest> CreateAsync(string jobId, string target, CancellationToken ct, ExecutionPolicy? automationPolicy = null)
     {
         var job = await CompletedJobAsync(jobId, ct);
         if (!Uri.TryCreate(target, UriKind.Absolute, out var targetUri) || targetUri.Scheme is not ("http" or "https")
@@ -34,7 +35,9 @@ public sealed class ExecutionRequestService(
         var json = JsonSerializer.Serialize(manifest, ContractJson.Options);
         var now = clock.GetUtcNow();
         var request = new ExecutionRequest(Guid.NewGuid().ToString("N"), job.Id, job.TestPlan.Id, target,
-            ExecutionRequestStatus.Draft, json, ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)), 0, now, now);
+            ExecutionRequestStatus.Draft, json, ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)), 0, now, now,
+            AutomationPolicy: automationPolicy?.Name, AutomationPolicyVersion: automationPolicy?.Version,
+            AutomationPolicyHash: automationPolicy?.Fingerprint());
         await requests.CreateAsync(request, ct);
         return request;
     }
@@ -61,6 +64,18 @@ public sealed class ExecutionRequestService(
         var inspection = await inspector.InspectAsync(new Uri(current.Target, UriKind.Absolute), ct);
         var manifest = ReviewedManifestBuilder.Build(job.TestPlan!, current.Target, inspection);
         return await UpdateManifestAsync(id, revision, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, ContractJson.Options)), ct);
+    }
+
+    public async Task<ExecutionRequest> CreateAutonomousAsync(string jobId, string target, string policyName, IUiInspector inspector, CancellationToken ct)
+    {
+        var policy = (policies ?? new ExecutionPolicyCatalog()).Required(policyName);
+        var request = await CreateAsync(jobId, target, ct, policy);
+        request = await PrepareManifestAsync(request.Id, request.Revision, inspector, ct);
+        var manifest = JsonSerializer.Deserialize<ExecutionManifest>(request.ManifestJson, StrictJson)
+            ?? throw new InvalidOperationException("Prepared manifest is missing");
+        policy.ValidateManifest(manifest);
+        request = await ApproveAsync(request.Id, request.Revision, request.ManifestHash, policy.ReviewerIdentity(), ct);
+        return policy.AutoLaunch ? await LaunchAsync(request.Id, request.Revision, ct) : request;
     }
 
     public async Task<ExecutionRequest> UpdateManifestAsync(string id, long revision, byte[] manifestBytes, CancellationToken ct)

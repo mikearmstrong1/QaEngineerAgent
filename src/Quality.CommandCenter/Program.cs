@@ -68,6 +68,12 @@ app.MapPost("/bff/jobs/{id}/execution-requests", async Task<IResult> (string id,
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["target"] = ["Enter an absolute HTTP(S) target without credentials"] });
     return await ForwardAsync(factory, HttpMethod.Post, $"/jobs/{id}/execution-requests", JsonContent.Create(input), ct);
 });
+app.MapPost("/bff/jobs/{id}/autonomous-executions", async Task<IResult> (string id, HttpRequest request, CreateAutonomousExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/jobs/{id}/autonomous-executions", JsonContent.Create(input), ct);
+});
 app.MapPut("/bff/execution-requests/{id}/manifest", async Task<IResult> (string id, HttpRequest request, UpdateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -221,6 +227,7 @@ sealed record FailureReview(string? Classification, string? Reason);
 sealed record PromotionReview(string? ReviewedManifestHash);
 sealed record ApplyProposalReview(string? ReviewedPatchSha256);
 sealed record CreateExecution(string? Target);
+sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);
