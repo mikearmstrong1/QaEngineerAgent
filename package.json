@@ -6,7 +6,7 @@
     "playwright"
   ],
   "scripts": {
-    "build": "npm run build --workspace @quality/playwright",
+    "build": "node --check src/Quality.CommandCenter/wwwroot/app.js && npm run build --workspace @quality/playwright",
     "test": "npm test --workspace @quality/playwright",
     "test:smoke": "npm run test:smoke --workspace @quality/playwright",
     "test:execution": "node --test scripts/execution.test.cjs",
