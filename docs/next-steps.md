@@ -1,6 +1,6 @@
 # Project build plan
 
-Last checked: **2026-09-20** against the running local deployment, saved verification evidence, and GitHub Actions.
+Last checked: **2026-09-23** against the running local deployment, persisted Command Center self-test, saved verification evidence, and GitHub Actions.
 
 ## Implemented scope
 
@@ -12,6 +12,7 @@ Last checked: **2026-09-20** against the running local deployment, saved verific
 6. **Operational hardening — implemented and deployed.** Ordered PostgreSQL migrations are implemented and verified against a real database; see [migration operation](database-migrations.md). API bearer-key authentication is implemented; see [configuration](api-authentication.md). Idempotent API/CLI submissions are implemented for both stores; see [semantics and limits](idempotent-submissions.md). Provider-operation recovery is implemented with persisted starts/results, safe read retries, and review-required uncertain planning outcomes; see [recovery behavior](provider-recovery.md). Worker lease renewal is implemented with coordinated checkpoints and cancellation on renewal failure; see [configuration and behavior](lease-renewal.md). Durable retry budgets are implemented with bounded worker/import attempts and a processing deadline; see [policy and configuration](retry-budgets.md). Job cancellation is implemented across stores, workers, HTTP and CLI; see [behavior and limits](job-cancellation.md). Operational metrics are implemented with authenticated API and optional worker scrapes, bounded counters/gauges/histograms, and process-isolated verification; see [setup and semantics](metrics.md).
 7. **Deployment verification — complete.** The corrected verification branch passed complete GitHub Actions CI. A new Linux arm64 image from that exact clean commit passed local container, browser, persistence, integration, and HIGH/CRITICAL vulnerability gates. See [verification evidence](deployment-verification.md). The verified arm64 image was published to GHCR at the same digest and deployed to the local Compose stack.
 8. **Command Center — reviewed execution implemented.** A separate server-side web app adds health, recent-job pagination, Jira submission, status polling, full plan review, durable manifest drafting and validation, exact-hash approval, execution launch/status, safe artifact preview/download, and explicit human failure classification without placing provider or API credentials in the browser. Existing API and CLI workflows remain intact. See [usage and security](command-center.md).
+9. **Manifest preparation and self-test — implemented.** Command Center can inspect an allowlisted page in a fresh read-only browser session and build a durable manifest draft. Generated steps are limited to navigation and heading/control assertions; it never generates clicks or fills. The draft is still schema-validated and requires exact-hash human approval before it can run. The running Command Center generated and passed its own persisted heading-and-Jira-input test.
 
 ## Current checkpoint
 
@@ -26,8 +27,28 @@ Last checked: **2026-09-20** against the running local deployment, saved verific
 
 ## Next work, in order
 
-1. **Policy-driven triggers and bounded reruns.** Durable queued execution, atomic worker claims, conservative interrupted-run recovery, shared PostgreSQL TestRun metadata, and automatic remote artifact publication are complete. Add schedules and signed deployment/source webhooks, deduplication keys, and separately budgeted infrastructure/flakiness reruns without changing assertions or selectors.
-2. **Validated pull-request promotion.** Materialize eligible additive proposals in an isolated worktree, run repository checks, then create a branch, commit, and pull request while retaining merge approval.
-3. **Coda verification — deferred.** Jira Cloud ingestion and OpenAI planning passed against real `KAN` project data. Live Coda ingestion remains unverified by user choice.
+1. **Add policy-driven autonomous mode.** Introduce versioned execution policies with named environments, target allowlists, permitted actions, test-data identities, run budgets, artifact retention, and an escalation channel. In autonomous mode, signed Jira/deployment triggers may ingest stories, generate plans and manifests, approve policy-conforming manifests, execute them, classify outcomes, publish private evidence, and update a regression catalog without a per-run human approval.
+2. **Close the regression-suite loop.** Introduce a durable `RegressionSuite`/membership model that stores manifest version, test-case mapping, source Jira story/revision, last run, evidence links, confidence, and promotion state. Autonomous policy-conforming passing tests may join the catalog; all versions remain immutable and reversible.
+3. **Build test-case-aware manifests.** Extend read-only inspection with stable semantic inventory (headings, accessible names, links, fields, and test IDs) and match it to individual planned test steps. Produce a per-test draft with confidence and coverage-gap notes. Autonomous policies may permit declared idempotent interactions against approved sandbox test data; everything else escalates.
+4. **Make results demonstrable at story level.** Add a Jira-story traceability view/API that shows acceptance criterion → test case → manifest version → run → artifact/trace, plus an exportable evidence summary.
+5. **Policy-driven triggers and bounded reruns.** Add schedules and signed deployment/source webhooks, deduplication keys, and separately budgeted infrastructure/flakiness reruns. The agent may retry only under policy and must never widen selectors, actions, targets, or credentials during a rerun.
+5. **Validated pull-request promotion.** Materialize eligible additive proposals in an isolated worktree, run repository checks, then create a branch, commit, and pull request while retaining merge approval.
+6. **Coda verification — deferred.** Jira Cloud ingestion and OpenAI planning passed against real `KAN` project data. Live Coda ingestion remains unverified by user choice.
+
+## Goal check
+
+| Product goal | Current state | Definition of done |
+| --- | --- | --- |
+| Consume Jira stories and build test cases | Implemented | Persisted requirement, acceptance-criterion provenance, and validated test plan. |
+| Create Playwright tests from test cases | Partially implemented | Approved manifests execute today; next work makes generated drafts test-case-aware and policy-eligible for autonomous execution. |
+| Execute tests and capture results | Implemented | Durable worker, run state, local evidence, and optional MinIO/Azure upload. |
+| Persist a regression suite | Partially implemented | Plans/manifests persist and passing tests can be proposed as Git patches; a first-class durable suite catalog is next. |
+| Demonstrate results traceable to Jira | Implemented foundation | The data lineage exists; next work adds the story-level evidence report. |
+
+## Autonomous operating model
+
+Autonomous mode is enabled per named policy, not as an unrestricted global switch. A policy may authorize the agent to read Jira and deployment events, deduplicate them, create/update plans, prepare manifests, execute policy-conforming tests against named allowlisted non-production environments, use declared test identities and action/run budgets, persist immutable suite versions, publish private evidence, and classify results.
+
+The agent escalates instead of acting when a target or action is outside policy, a secret/credential would be exposed, confidence is below the policy threshold, test-data cleanup is uncertain, a run would affect production, or it would merge, deploy, or change external configuration. Policy creation or broadening remains an explicit operator action; normal policy-conforming QA operation does not.
 
 Use local Qwen for bounded implementation drafts, test proposals, and reviews where practical. Review its output and execute verification through the supervising agent; Qwen does not have independent shell access.
