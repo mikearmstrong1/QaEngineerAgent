@@ -33,6 +33,17 @@ x-quality: &quality
     Quality__Execution__Workspace: /app
     Quality__Execution__RunDirectory: /data/executions
     Quality__Execution__AllowedOrigins: ${QUALITY_EXECUTION_ALLOWED_ORIGINS:-}
+    Quality__Execution__Policies__0__Name: ${QUALITY_AUTONOMOUS_POLICY_NAME:-}
+    Quality__Execution__Policies__0__Version: ${QUALITY_AUTONOMOUS_POLICY_VERSION:-v1}
+    Quality__Execution__Policies__0__AllowedOrigins__0: ${QUALITY_AUTONOMOUS_POLICY_ORIGIN:-}
+    Quality__Execution__Policies__0__AllowedActions__0: ${QUALITY_AUTONOMOUS_POLICY_ACTION_0:-goto}
+    Quality__Execution__Policies__0__AllowedActions__1: ${QUALITY_AUTONOMOUS_POLICY_ACTION_1:-expectText}
+    Quality__Execution__Policies__0__AllowedActions__2: ${QUALITY_AUTONOMOUS_POLICY_ACTION_2:-expectVisible}
+    Quality__Execution__Policies__0__MaxTimeoutSeconds: ${QUALITY_AUTONOMOUS_POLICY_MAX_TIMEOUT_SECONDS:-60}
+    Quality__Execution__Policies__0__NonProduction: ${QUALITY_AUTONOMOUS_POLICY_NON_PRODUCTION:-false}
+    Quality__Execution__Policies__0__AutoApprove: ${QUALITY_AUTONOMOUS_POLICY_AUTO_APPROVE:-false}
+    Quality__Execution__Policies__0__AutoLaunch: ${QUALITY_AUTONOMOUS_POLICY_AUTO_LAUNCH:-false}
+    Quality__Execution__Policies__0__CanaryMaxAutoLaunches: ${QUALITY_AUTONOMOUS_POLICY_CANARY_MAX_AUTO_LAUNCHES:-0}
     Quality__Requirements__Mode: ${QUALITY_REQUIREMENTS_MODE:-Stub}
     Quality__Requirements__Jira__BaseUrl: ${JIRA_BASE_URL:-}
     Quality__Requirements__Jira__Email: ${JIRA_EMAIL:-}

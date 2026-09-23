@@ -19,6 +19,13 @@
 }
 .execution-card > .compact { width: auto; margin-top: 12px; }
 .inspection-box { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 15px; }
+.policy-registry { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.policy-list { display: grid; gap: 8px; margin-top: 12px; }
+.policy-card { background: #08110f; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.policy-card summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.autonomous-controls { display: grid; grid-template-columns: minmax(180px,.5fr) auto; gap: 9px; align-items: end; margin-top: 14px; }
+.autonomous-controls label { display: grid; gap: 7px; font-weight: 700; }
+.autonomous-controls .form-message { grid-column: 1 / -1; margin: 0; }
 .control-list { display: grid; gap: 7px; margin-top: 12px; max-height: 320px; overflow: auto; }
 .control-row { text-align: left; background: #08110f; color: var(--ink); border: 1px solid var(--line); padding: 10px; }
 .control-row:hover { border-color: var(--mint); }
@@ -27,3 +34,4 @@
 .status.Approved, .status.Passed { color: var(--mint); border-color: #28745f; }
 .status.AwaitingApproval, .status.Draft, .status.Queued, .status.Running { color: var(--amber); border-color: #6e592e; }
 @media (max-width: 620px) { .execution-create { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .autonomous-controls { grid-template-columns: 1fr; } }

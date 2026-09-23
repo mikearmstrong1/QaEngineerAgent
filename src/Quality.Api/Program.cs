@@ -566,7 +566,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton(new ExecutionOptions(workspace,
         (execution["AllowedOrigins"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         execution["NodeExecutable"] ?? "node"));
-    services.AddSingleton(new ExecutionPolicyCatalog(execution.GetSection("Policies").Get<ExecutionPolicy[]>() ?? []));
+    var configuredPolicies = execution.GetSection("Policies").Get<ExecutionPolicy[]>()?
+        .Where(policy => !string.IsNullOrWhiteSpace(policy.Name)).ToArray() ?? [];
+    services.AddSingleton(new ExecutionPolicyCatalog(configuredPolicies));
     services.AddSingleton<PlaywrightTestExecutor>();
     services.AddSingleton<IUiInspector, PlaywrightUiInspector>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());

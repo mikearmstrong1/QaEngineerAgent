@@ -55,5 +55,16 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
         ? policy : throw new ArgumentException("Autonomous execution policy was not found");
 
     public IReadOnlyList<object> Describe() => items.Values.OrderBy(policy => policy.Name, StringComparer.Ordinal)
-        .Select(policy => (object)new { policy.Name, policy.Version, policy.NonProduction, policy.AutoApprove, policy.AutoLaunch, policy.CanaryMaxAutoLaunches }).ToArray();
+        .Select(policy => (object)new
+        {
+            policy.Name,
+            policy.Version,
+            policy.NonProduction,
+            policy.AutoApprove,
+            policy.AutoLaunch,
+            policy.CanaryMaxAutoLaunches,
+            AllowedOrigins = policy.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order().ToArray(),
+            AllowedActions = policy.AllowedActions.Order().ToArray(),
+            Fingerprint = policy.Fingerprint()
+        }).ToArray();
 }

@@ -39,6 +39,12 @@ The saved review is attached to the run. It does not change the execution result
 
 Any saved edit clears the previous approval. Concurrent edits with a stale revision are rejected instead of overwriting a newer version. A worker interruption never replays potentially consequential browser actions: after the bounded lease expires, the request becomes `InfrastructureFailed` for review. TestRun metadata is shared through PostgreSQL while runner inputs and large evidence remain in the execution volume and optional object store.
 
+## Autonomous execution
+
+When an operator configures a named non-production policy, **Autonomous execution policies** appears under **Reviewed execution**. The registry is read-only: it shows the exact policy version, fingerprint, origins, actions, approval/launch settings, and canary budget currently enforced by the API. Select an eligible policy, enter a target covered by that policy, and choose **Start autonomous execution**.
+
+The API then creates a durable request, performs its read-only page inspection, prepares a manifest, validates it against the policy, records the policy identity and fingerprint, and auto-approves it. A policy may auto-launch only its configured canary budget; later requests remain **Approved** and can be queued through the ordinary control. The browser cannot edit policies, widen a target/action allowlist, or bypass the policy validation.
+
 ## Terminal parity
 
 Reviewed Playwright execution remains available through both the versioned `execution-*` commands and the original stateless CLI workflow. Failure classification and regression patch creation are available in both interfaces. The Command Center additionally previews and applies a reviewed patch to the configured target repository. Web controls invoke the same application services and preserve review hashes, promotion gates, and terminal commands.
@@ -64,3 +70,20 @@ Compose supplies these settings to the server-side Command Center process:
 | `Quality__CommandCenter__ApiKey` | `${QUALITY_API_KEY}` |
 
 The service has its own `/health` endpoint. `/bff/status` verifies the upstream API store through `/ready`.
+
+### Optional autonomous policy for local Compose
+
+Configure one policy in your private environment file, then recreate API, worker, and Command Center:
+
+```text
+QUALITY_EXECUTION_ALLOWED_ORIGINS=http://host.docker.internal:5081
+QUALITY_AUTONOMOUS_POLICY_NAME=command-center-smoke
+QUALITY_AUTONOMOUS_POLICY_VERSION=v1
+QUALITY_AUTONOMOUS_POLICY_ORIGIN=http://host.docker.internal:5081
+QUALITY_AUTONOMOUS_POLICY_NON_PRODUCTION=true
+QUALITY_AUTONOMOUS_POLICY_AUTO_APPROVE=true
+QUALITY_AUTONOMOUS_POLICY_AUTO_LAUNCH=true
+QUALITY_AUTONOMOUS_POLICY_CANARY_MAX_AUTO_LAUNCHES=1
+```
+
+The Compose default actions are `goto`, `expectText`, and `expectVisible`. Override the three `QUALITY_AUTONOMOUS_POLICY_ACTION_*` variables only for declared, non-production test flows. Do not put credentials or production targets in this policy.
