@@ -16,7 +16,8 @@ public sealed record ExecutionPolicy(
     int MaxTimeoutSeconds = 60,
     bool NonProduction = false,
     bool AutoApprove = false,
-    bool AutoLaunch = false)
+    bool AutoLaunch = false,
+    int CanaryMaxAutoLaunches = 0)
 {
     public void ValidateManifest(ExecutionManifest manifest)
     {
@@ -38,7 +39,7 @@ public sealed record ExecutionPolicy(
 
     public string Fingerprint()
     {
-        var canonical = string.Join("\n", Name, Version, NonProduction, AutoApprove, AutoLaunch, MaxTimeoutSeconds,
+        var canonical = string.Join("\n", Name, Version, NonProduction, AutoApprove, AutoLaunch, CanaryMaxAutoLaunches, MaxTimeoutSeconds,
             string.Join(";", AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order(StringComparer.Ordinal)),
             string.Join(";", AllowedActions.Order(StringComparer.Ordinal)));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
@@ -54,5 +55,5 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
         ? policy : throw new ArgumentException("Autonomous execution policy was not found");
 
     public IReadOnlyList<object> Describe() => items.Values.OrderBy(policy => policy.Name, StringComparer.Ordinal)
-        .Select(policy => (object)new { policy.Name, policy.Version, policy.NonProduction, policy.AutoApprove, policy.AutoLaunch }).ToArray();
+        .Select(policy => (object)new { policy.Name, policy.Version, policy.NonProduction, policy.AutoApprove, policy.AutoLaunch, policy.CanaryMaxAutoLaunches }).ToArray();
 }

@@ -34,6 +34,29 @@ public sealed class PostgresExecutionRequestStore(NpgsqlDataSource dataSource) :
         return items;
     }
 
+    public async Task<bool> CanAutoLaunchAsync(string policyHash, int maximum, CancellationToken ct)
+    {
+        if (policyHash.Length != 64 || maximum < 1) return false;
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await using (var lockCommand = connection.CreateCommand())
+        {
+            lockCommand.CommandText = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))";
+            lockCommand.Parameters.AddWithValue(policyHash);
+            await lockCommand.ExecuteNonQueryAsync(ct);
+        }
+        await using var count = connection.CreateCommand();
+        count.CommandText = """
+            SELECT count(*) FROM quality_execution_requests
+            WHERE document->>'automationPolicyHash'=$1
+              AND status NOT IN ('Draft', 'AwaitingApproval')
+            """;
+        count.Parameters.AddWithValue(policyHash);
+        var used = Convert.ToInt32(await count.ExecuteScalarAsync(ct));
+        await tx.CommitAsync(ct);
+        return used <= maximum;
+    }
+
     public async Task<ExecutionRequest> SaveAsync(ExecutionRequest request, long expectedRevision, CancellationToken ct)
     {
         var saved = request with { Revision = expectedRevision + 1 };

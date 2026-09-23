@@ -59,6 +59,8 @@ public interface IExecutionRequestStore
     Task CreateAsync(ExecutionRequest request, CancellationToken ct);
     Task<ExecutionRequest?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<ExecutionRequest>> ListByJobAsync(string jobId, CancellationToken ct);
+    // Atomically evaluates a durable policy canary budget after the current request is approved.
+    Task<bool> CanAutoLaunchAsync(string policyHash, int maximum, CancellationToken ct);
     Task<ExecutionRequest?> ClaimAsync(TimeSpan lease, CancellationToken ct);
     Task<ExecutionRequest> SaveAsync(ExecutionRequest request, long expectedRevision, CancellationToken ct);
 }

@@ -75,7 +75,10 @@ public sealed class ExecutionRequestService(
             ?? throw new InvalidOperationException("Prepared manifest is missing");
         policy.ValidateManifest(manifest);
         request = await ApproveAsync(request.Id, request.Revision, request.ManifestHash, policy.ReviewerIdentity(), ct);
-        return policy.AutoLaunch ? await LaunchAsync(request.Id, request.Revision, ct) : request;
+        if (!policy.AutoLaunch || policy.CanaryMaxAutoLaunches < 1 || request.AutomationPolicyHash is null
+            || !await requests.CanAutoLaunchAsync(request.AutomationPolicyHash, policy.CanaryMaxAutoLaunches, ct))
+            return request;
+        return await LaunchAsync(request.Id, request.Revision, ct);
     }
 
     public async Task<ExecutionRequest> UpdateManifestAsync(string id, long revision, byte[] manifestBytes, CancellationToken ct)

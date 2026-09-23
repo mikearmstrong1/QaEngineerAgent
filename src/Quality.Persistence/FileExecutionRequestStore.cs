@@ -32,6 +32,19 @@ public sealed class FileExecutionRequestStore(string directory) : IExecutionRequ
         return items.OrderByDescending(x => x.CreatedAt).ToArray();
     }
 
+    public async Task<bool> CanAutoLaunchAsync(string policyHash, int maximum, CancellationToken ct)
+    {
+        if (policyHash.Length != 64 || maximum < 1) return false;
+        using var gate = await LockAsync(ct);
+        var used = 0;
+        foreach (var file in Directory.EnumerateFiles(root, "*.json"))
+            if (await ReadAsync(Path.GetFileNameWithoutExtension(file), ct) is { } item
+                && item.AutomationPolicyHash == policyHash
+                && item.Status is not ExecutionRequestStatus.Draft and not ExecutionRequestStatus.AwaitingApproval)
+                used++;
+        return used <= maximum;
+    }
+
     public async Task<ExecutionRequest> SaveAsync(ExecutionRequest request, long expectedRevision, CancellationToken ct)
     {
         using var gate = await LockAsync(ct);

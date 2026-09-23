@@ -151,7 +151,8 @@ public sealed class ExecutionRequestTests
                 now, now, 0, null, plan, [], [], null, null, null);
             await jobs.CreateAsync(job, default);
             var policy = new ExecutionPolicy("command-center-smoke", "v1", ["http://127.0.0.1:8000"],
-                ["goto", "expectText", "expectVisible"], NonProduction: true, AutoApprove: true, AutoLaunch: true);
+                ["goto", "expectText", "expectVisible"], NonProduction: true, AutoApprove: true, AutoLaunch: true,
+                CanaryMaxAutoLaunches: 1);
             var service = new ExecutionRequestService(new FileExecutionRequestStore(Path.Combine(root, "requests")), jobs,
                 new CapturingExecutor(), new(root, ["http://127.0.0.1:8000"]), TimeProvider.System,
                 policies: new ExecutionPolicyCatalog([policy]));
@@ -164,6 +165,10 @@ public sealed class ExecutionRequestTests
             Assert.Equal(policy.Version, request.AutomationPolicyVersion);
             Assert.Equal(policy.Fingerprint(), request.AutomationPolicyHash);
             Assert.Equal(policy.ReviewerIdentity(), request.Approval!.Reviewer);
+
+            var held = await service.CreateAutonomousAsync(job.Id, "http://127.0.0.1:8000/", policy.Name,
+                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
+            Assert.Equal(ExecutionRequestStatus.Approved, held.Status);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
