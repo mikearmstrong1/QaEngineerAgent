@@ -44,6 +44,10 @@ x-quality: &quality
     Quality__Execution__Policies__0__AutoApprove: ${QUALITY_AUTONOMOUS_POLICY_AUTO_APPROVE:-false}
     Quality__Execution__Policies__0__AutoLaunch: ${QUALITY_AUTONOMOUS_POLICY_AUTO_LAUNCH:-false}
     Quality__Execution__Policies__0__CanaryMaxAutoLaunches: ${QUALITY_AUTONOMOUS_POLICY_CANARY_MAX_AUTO_LAUNCHES:-0}
+    Quality__Execution__Policies__0__Environment: ${QUALITY_AUTONOMOUS_POLICY_ENVIRONMENT:-default}
+    Quality__Execution__Policies__0__MaxConcurrentAutoLaunches: ${QUALITY_AUTONOMOUS_POLICY_MAX_CONCURRENT:-1}
+    Quality__Execution__Policies__0__AutoLaunchWindowSeconds: ${QUALITY_AUTONOMOUS_POLICY_WINDOW_SECONDS:-3600}
+    Quality__Execution__Policies__0__MaxAutoLaunchesPerWindow: ${QUALITY_AUTONOMOUS_POLICY_MAX_PER_WINDOW:-1}
     Quality__Requirements__Mode: ${QUALITY_REQUIREMENTS_MODE:-Stub}
     Quality__Requirements__Jira__BaseUrl: ${JIRA_BASE_URL:-}
     Quality__Requirements__Jira__Email: ${JIRA_EMAIL:-}

@@ -1,0 +1,21 @@
+{
+  "name": "local-readonly",
+  "version": "v1",
+  "allowedOrigins": [
+    "http://127.0.0.1:5090"
+  ],
+  "allowedActions": [
+    "goto",
+    "expectText",
+    "expectVisible"
+  ],
+  "maxTimeoutSeconds": 60,
+  "nonProduction": true,
+  "autoApprove": true,
+  "autoLaunch": false,
+  "canaryMaxAutoLaunches": 0,
+  "environment": "local",
+  "maxConcurrentAutoLaunches": 1,
+  "autoLaunchWindowSeconds": 3600,
+  "maxAutoLaunchesPerWindow": 1
+}

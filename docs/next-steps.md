@@ -1,54 +1,104 @@
 # Project build plan
 
-Last checked: **2026-09-23** against the running local deployment, persisted Command Center self-test, saved verification evidence, and GitHub Actions.
+Last checked: **2026-09-25** against `main` at `394424f`, the current source tree, local .NET/Node/Playwright verification, and the documented deployment evidence.
 
-## Implemented scope
+## Product goals
 
-1. **Real requirements adapter — implemented; live Jira passed.** Read-only Jira issue and Coda requirement-row ingestion with document/table references, source revisions, criterion provenance, repeatable provider fixtures, and Jira card descriptions with explicit AC sections. See [configuration and limits](requirements-ingestion.md). Real Jira Cloud issues were imported successfully from both a dedicated criteria field and a description-embedded AC layout with non-stub provenance; live Coda verification remains environment-dependent. See [live provider evidence](live-provider-verification.md).
-2. **Structured planning provider — implemented; live OpenAI passed.** Optional OpenAI Responses adapter with pinned plan/v2 prompt/schema, local JSON Schema and traceability validation, persisted model/version/hashes, bounded retries/timeouts, and no-call reports for missing requirements. A live `gpt-5.6-terra` run produced a locally validated, traceable plan from the non-stub `KAN-4` Jira requirement. See [configuration and limits](structured-planning.md) and [live provider evidence](live-provider-verification.md).
-3. **Playwright execution adapter — implemented.** Reviewed, hash-bound execution manifests generate fixed Playwright tests in isolated run directories, enforce exact target origins and timeouts, and persist real TestRun status plus local evidence. See [workflow and limits](playwright-execution.md).
-4. **Artifact adapters — implemented.** Optional MinIO or Azure Blob evidence uploads with SHA-256/content types, provider-aware associations, independent run upload status, resumable publishing, failure-evidence associations, and explicit private container/bucket initialization. MinIO supports prefix-scoped retention; Azure lifecycle policy remains account-managed. See [MinIO setup](minio-artifacts.md) and [Azure setup](azure-artifacts.md). Real local MinIO round trips and CLI publishing verified; Azure integration verification is opt-in against an operator-supplied test account.
-5. **Regression promotion — implemented.** Isolated reviewable Git patches for passing non-synthetic plans, a configurable target test repository, Command Center diff review and explicit apply, stable regression IDs and source/evidence mappings, and failure triage/review. Assertions are preserved; existing regressions cannot be overwritten. See [workflow and limits](regression-promotion.md).
-6. **Operational hardening — implemented and deployed.** Ordered PostgreSQL migrations are implemented and verified against a real database; see [migration operation](database-migrations.md). API bearer-key authentication is implemented; see [configuration](api-authentication.md). Idempotent API/CLI submissions are implemented for both stores; see [semantics and limits](idempotent-submissions.md). Provider-operation recovery is implemented with persisted starts/results, safe read retries, and review-required uncertain planning outcomes; see [recovery behavior](provider-recovery.md). Worker lease renewal is implemented with coordinated checkpoints and cancellation on renewal failure; see [configuration and behavior](lease-renewal.md). Durable retry budgets are implemented with bounded worker/import attempts and a processing deadline; see [policy and configuration](retry-budgets.md). Job cancellation is implemented across stores, workers, HTTP and CLI; see [behavior and limits](job-cancellation.md). Operational metrics are implemented with authenticated API and optional worker scrapes, bounded counters/gauges/histograms, and process-isolated verification; see [setup and semantics](metrics.md).
-7. **Deployment verification — complete.** The corrected verification branch passed complete GitHub Actions CI. A new Linux arm64 image from that exact clean commit passed local container, browser, persistence, integration, and HIGH/CRITICAL vulnerability gates. See [verification evidence](deployment-verification.md). The verified arm64 image was published to GHCR at the same digest and deployed to the local Compose stack.
-8. **Command Center — reviewed execution implemented.** A separate server-side web app adds health, recent-job pagination, Jira submission, status polling, full plan review, durable manifest drafting and validation, exact-hash approval, execution launch/status, safe artifact preview/download, and explicit human failure classification without placing provider or API credentials in the browser. Existing API and CLI workflows remain intact. See [usage and security](command-center.md).
-9. **Manifest preparation and self-test — implemented.** Command Center can inspect an allowlisted page in a fresh read-only browser session and build a durable manifest draft. Generated steps are limited to navigation and heading/control assertions; it never generates clicks or fills. The draft is still schema-validated and requires exact-hash human approval before it can run. The running Command Center generated and passed its own persisted heading-and-Jira-input test.
-
-## Current checkpoint
-
-- Main contains the test-clock correction and release preparation. Commit `d4bb63ea6769d50428645c034809b52125967c2c` passed [complete CI](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35352474153), including the HIGH/CRITICAL image scan.
-- Verification branch `verify/deployment-20260916` was updated from current main with the test-clock correction at `6a6f7ea5d255d7c04630f444811bcebc48d8530d`. [Run 35348519327](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35348519327) passed the complete GitHub Actions workflow: .NET, Node, browser, Compose, persistence/recreation, and HIGH/CRITICAL image scan gates. Image publication was skipped on this branch.
-- The earlier verification-branch [run 35100842568](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35100842568) and main [run 35115693503](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35115693503) failed at .NET tests before this correction.
-- The retry fix rechecks persisted `RetryAt` after timer wake-ups and rounds positive waits up to whole milliseconds. `JobTests.TestClock` now combines elapsed system time with an atomic explicit offset, so its UTC advances with inherited real timers. The strict retry-boundary assertions remain intact.
-- On 2026-09-18, the focused macOS job/retry suite passed 31 tests with one PostgreSQL skip. A Release solution build passed with zero warnings/errors, and the full .NET suite passed 165 tests with zero skips against disposable PostgreSQL and MinIO containers. Those containers were stopped and removed. The merged verification branch also passed its focused job/retry suite before the successful remote run.
-- The clean verification commit was rebuilt as local Linux arm64 image `quality-system:verify-6a6f7ea` with digest `sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971`. It passed 165 .NET tests, 10 execution/regression tests, host and in-image Chromium smoke, authenticated container controls, MinIO artifact checks, PostgreSQL/MinIO recreation, and a pinned Trivy 0.74.0 scan with zero HIGH/CRITICAL findings. [Candidate record](deployment-candidate.json) contains source, fingerprint, scan, and evidence hashes. The original running stack was preserved.
-- All prior changes were merged to `main` at `bbaa8b72ab7307c1e97518ce292bb8a138d1720c`. Its [complete CI run](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35351744151) passed, and merged main has the same 96 image build inputs as the local arm64 candidate. Main CI no longer publishes its separate runner-built image. With explicit authorization, the exact arm64 candidate was published as `ghcr.io/mikearmstrong1/qaengineeragent@sha256:cabc4f2b72668b79950187cf598d774c1700a78d282a1058cb9a548250430971`; its remote platform and digest matched, a digest pull succeeded, and the image was deployed to the local Compose stack.
-- Jira description-embedded AC support and Compose live-provider wiring are on `main` at `640c6cf4c6ac316f527f9d0b3d64ce76c46c23e2`; its [complete CI run](https://github.com/mikearmstrong1/QaEngineerAgent/actions/runs/35439769584) passed. The final arm64 image passed live `KAN-4`, browser/API smoke, and zero HIGH/CRITICAL scan gates, then was published and deployed as `ghcr.io/mikearmstrong1/qaengineeragent@sha256:bca9a494209884521698d13c58dfc7561f00dd531455902ef3da1e47fe12b501`.
-
-## Next work, in order
-
-1. **Add policy-driven autonomous mode.** Introduce versioned execution policies with named environments, target allowlists, permitted actions, test-data identities, run budgets, artifact retention, and an escalation channel. In autonomous mode, signed Jira/deployment triggers may ingest stories, generate plans and manifests, approve policy-conforming manifests, execute them, classify outcomes, publish private evidence, and update a regression catalog without a per-run human approval.
-2. **Close the regression-suite loop.** Introduce a durable `RegressionSuite`/membership model that stores manifest version, test-case mapping, source Jira story/revision, last run, evidence links, confidence, and promotion state. Autonomous policy-conforming passing tests may join the catalog; all versions remain immutable and reversible.
-3. **Build test-case-aware manifests.** Extend read-only inspection with stable semantic inventory (headings, accessible names, links, fields, and test IDs) and match it to individual planned test steps. Produce a per-test draft with confidence and coverage-gap notes. Autonomous policies may permit declared idempotent interactions against approved sandbox test data; everything else escalates.
-4. **Make results demonstrable at story level.** Add a Jira-story traceability view/API that shows acceptance criterion → test case → manifest version → run → artifact/trace, plus an exportable evidence summary.
-5. **Policy-driven triggers and bounded reruns.** Add schedules and signed deployment/source webhooks, deduplication keys, and separately budgeted infrastructure/flakiness reruns. The agent may retry only under policy and must never widen selectors, actions, targets, or credentials during a rerun.
-5. **Validated pull-request promotion.** Materialize eligible additive proposals in an isolated worktree, run repository checks, then create a branch, commit, and pull request while retaining merge approval.
-6. **Coda verification — deferred.** Jira Cloud ingestion and OpenAI planning passed against real `KAN` project data. Live Coda ingestion remains unverified by user choice.
+The system should turn a Jira story into traceable, executable browser coverage; run that coverage safely; preserve evidence and regression history; and automate the normal path while making human review an optional policy gate or an escalation path. The web app and terminal must expose the same application contracts. Credentials must remain server-side and out of logs, browser responses, source control, and saved evidence.
 
 ## Goal check
 
-| Product goal | Current state | Definition of done |
+| Product goal | Current state | Remaining definition of done |
 | --- | --- | --- |
-| Consume Jira stories and build test cases | Implemented | Persisted requirement, acceptance-criterion provenance, and validated test plan. |
-| Create Playwright tests from test cases | Partially implemented | Approved manifests execute today; next work makes generated drafts test-case-aware and policy-eligible for autonomous execution. |
-| Execute tests and capture results | Implemented | Durable worker, run state, local evidence, and optional MinIO/Azure upload. |
-| Persist a regression suite | Partially implemented | Plans/manifests persist and passing tests can be proposed as Git patches; a first-class durable suite catalog is next. |
-| Demonstrate results traceable to Jira | Implemented foundation | The data lineage exists; next work adds the story-level evidence report. |
+| Consume Jira stories and build test cases | Implemented | Keep live-provider contract tests and surface source-revision drift before execution. |
+| Create Playwright tests from test cases | Partially implemented | Deterministic inspection now maps some named `click`/`fill` steps, but each generated test still needs an explicit coverage/confidence result instead of falling back to a generic page assertion. |
+| Execute tests and capture results | Implemented for reviewed and policy-approved requests | Make the complete inspect-to-evidence sequence durable, resumable, idempotent, and available from both API/web and CLI. |
+| Automate safely with optional human review | Durable policy-bound workflow implemented | Add richer governance, per-step confidence, declared test data/cleanup, bounded reruns, and automated promotion proposals. |
+| Persist a regression suite | Partially implemented | Replace patch-only promotion with a first-class immutable suite/version catalog and automated validation/PR creation. Keep merge approval external and explicit. |
+| Demonstrate results traceable to Jira | Foundation implemented | Add a story-level acceptance criterion → test → manifest → run → evidence view and export. |
 
-## Autonomous operating model
+## Implemented baseline
 
-Autonomous mode is enabled per named policy, not as an unrestricted global switch. A policy may authorize the agent to read Jira and deployment events, deduplicate them, create/update plans, prepare manifests, execute policy-conforming tests against named allowlisted non-production environments, use declared test identities and action/run budgets, persist immutable suite versions, publish private evidence, and classify results.
+- Read-only Jira and Coda ingestion, acceptance-criterion provenance, structured OpenAI planning, schema/traceability validation, bounded provider calls, and provider-operation recovery.
+- Durable PostgreSQL job processing with migrations, leases, renewal, retries, cancellation, idempotent submission, authenticated APIs, metrics, and file-store development fallbacks.
+- Hash-bound Playwright manifests, origin/action restrictions, isolated run directories, terminal run states, and local plus optional MinIO/Azure evidence.
+- Reviewed regression proposals with stable mappings, Git patches, explicit apply, and failure classification.
+- Command Center workflows for planning, manifest editing/approval, execution, evidence review, failure classification, regression proposals, and policy administration.
+- A durable autonomous canary with immutable named non-production policy revisions, idempotent triggers, leased checkpoints, exact request snapshots, cancellation, optional review resumption, and atomic lifetime/rolling-window/concurrency launch budgets. Policies constrain origins, actions, timeout, approval, and launch. Read-only inspection can deterministically add heading/control assertions and narrowly matched `click`/`fill` actions; the API validates the resulting manifest before policy approval and launch.
+- CI covers .NET, Node, Playwright, Compose, persistence/recreation, artifacts, browser smoke, and a HIGH/CRITICAL image scan. Historical release and deployment details remain in [deployment verification](deployment-verification.md) and [release preparation](release-preparation.md).
 
-The agent escalates instead of acting when a target or action is outside policy, a secret/credential would be exposed, confidence is below the policy threshold, test-data cleanup is uncertain, a run would affect production, or it would merge, deploy, or change external configuration. Policy creation or broadening remains an explicit operator action; normal policy-conforming QA operation does not.
+## Audit findings that change the old plan
+
+1. **Autonomous mode is no longer the next unimplemented feature.** The canary exists on `main`; the next step is to make its authority, state, and recovery production-grade.
+2. **Policy revisioning and launch budgets are implemented; richer governance remains.** Policy content is immutable by name/version, PostgreSQL and file stores enforce lifecycle state with one active revision per name, legacy file policies migrate, and requests retain the canonical policy snapshot/fingerprint and named environment. Lifetime, rolling-window, and concurrency budgets are reserved atomically before queueing. Test-identity/cleanup declarations, artifact requirements, and role-separated activation are still pending.
+3. **Autonomous execution is now a durable workflow.** Trigger, planning validation, inspection, manifest preparation, policy evaluation, review, queueing, execution, evidence, and classification have persisted checkpoints, stage keys, bounded retries, fenced leases, cancellation, and resume behavior. Trigger idempotency converges duplicate deliveries and deterministic request identity prevents duplicate browser runs.
+4. **Launch authorization and recovery are bounded.** Fingerprint-scoped lifetime, rolling-window, and concurrency limits reserve atomically. Policy gates, exhausted budgets, and fail-closed reservations pause the same workflow for review. Separately budgeted reruns remain future work.
+5. **Generated coverage can look stronger than it is.** The builder uses simple text matching and may finish a test with a heading, rotating control, or `body` visibility assertion. It does not persist confidence, unmatched planned steps, missing assertions, required test data, or cleanup obligations.
+6. **Terminal parity covers policy and workflow control.** CLI commands create/list/show/activate/disable/retire revisions and create/get/review/cancel automation workflows through the same services as the API and Command Center. Future governance fields must continue to ship across all three surfaces.
+7. **The feedback loop remains human-heavy.** Failure classification, retry decisions, regression membership, source-control proposal validation, and story-level reporting are separate/manual operations rather than policy-driven stages.
+8. **Operational scope remains local/private.** Bearer authentication is appropriate for the current deployment, but rate limiting, role separation, tenant isolation, and stronger execution sandboxing are still required before broader or multi-user exposure.
+
+## Next work, in dependency order
+
+### 1. Harden policy governance and restore CLI parity — in progress
+
+Immutable server-side `ExecutionPolicyRevision` storage, canonical request snapshots, named environments, `Draft`/`Active`/`Disabled`/`Retired` lifecycle, one-active-revision enforcement, legacy-file migration, atomic lifetime/rolling-window/concurrency launch reservations, and CLI/API/web parity are implemented. Complete this milestone with artifact/retention requirements; test-identity references; cleanup requirements; confidence thresholds; escalation behavior; and role-separated activation. Store secrets only in the existing server-side configuration/provider boundary.
+
+**Exit gate:** PostgreSQL concurrency tests prove atomic activation and budget reservation; an in-flight request remains bound to its saved policy revision after later edits; disable prevents new authorization without corrupting history; API, web, and CLI contract tests produce equivalent records; no policy response or evidence contains secret material.
+
+### 2. Make autonomous operation a durable state machine — implemented
+
+`AutomationWorkflow` now checkpoints `Triggered → Planned → Inspected → ManifestPrepared → PolicyEvaluated → AwaitingReview/Approved → Queued → Executed → EvidencePublished → Classified → Completed`. It persists input and stage idempotency keys, exact policy revision/hash, review decisions, request/run links, errors, escalation reasons, and an audit trail. File and PostgreSQL workers use lease/revision fencing and bounded retries. A review decision resumes the same aggregate; cancellation propagates into running execution. Regression proposal/catalog state remains in milestone 6 because policy does not yet authorize autonomous source-control changes.
+
+**Exit gate:** restart/reconciliation tests prove one deterministic execution request and browser run; concurrent duplicate PostgreSQL triggers and claims converge; cancellation fences a running executor; bounded stage failures stop closed; uncertain or policy-gated work stops at `AwaitingReview`; every terminal workflow retains its checkpoints. Provider planning remains independently protected by the existing job operation ledger, uploads remain content-addressed/idempotent, and promotion remains an explicit later workflow.
+
+### 3. Produce test-case-aware manifests with evidence of coverage
+
+Expand the read-only UI inventory to stable semantic controls (role, accessible name, test ID, form relationship, link destination, and page state). Map every planned step and expected result to a manifest step or a structured gap. Persist per-step confidence and reasons. Require meaningful assertions tied to the planned expected result; never treat generic `body` visibility as autonomous coverage. Add a dry-run/explain endpoint and CLI output so an operator can review mappings without authorizing execution. Permit mutations only when the active policy declares the action, test identity/data, preconditions, and deterministic cleanup.
+
+**Exit gate:** golden fixtures cover ambiguous labels, duplicate controls, missing selectors, navigation, and destructive wording; low-confidence or incomplete mappings escalate; the autonomous path cannot approve a test with unmatched required steps, generic-only assertions, undeclared data, or uncertain cleanup; generated manifests remain deterministic for the same plan, policy, and inspection.
+
+### 4. Add triggers and bounded reruns on top of the durable workflow
+
+Support signed deployment/source webhooks and schedules that only create idempotent workflow triggers. Bind each trigger to an active policy revision and named environment. Add separately budgeted reruns for clearly identified infrastructure failures and declared flaky tests; reruns must reuse the exact manifest/policy and may never widen origins, selectors, actions, credentials, or data permissions.
+
+**Exit gate:** signature/replay/expiry tests pass; duplicate delivery creates one workflow; invalid or stale triggers create no job; rerun exhaustion escalates once; schedules and webhooks can be disabled without deleting history; trigger submission is available from CLI for deterministic testing.
+
+### 5. Automate deterministic triage and evidence publication
+
+Automatically classify only evidence-backed infrastructure conditions and known test-harness failures. Leave assertion/application ambiguity in `AwaitingReview` unless a policy explicitly accepts a high-confidence rule. Make artifact publication resumable from abandoned `Uploading` states, apply retention policy by policy revision, and record redaction/checksum results before evidence is exposed or promoted.
+
+**Exit gate:** classification fixtures have no false application-failure claims; uncertain results always escalate; interrupted uploads resume without rerunning tests; redaction tests cover headers, URLs, screenshots/text, and provider errors; missing required evidence prevents autonomous promotion.
+
+### 6. Close the regression loop with immutable suite versions
+
+Add durable `RegressionSuite`, `RegressionCase`, and immutable `RegressionVersion` records linking requirement/source revision, acceptance criteria, test case, policy revision, exact manifest, runs, evidence, confidence, and promotion state. Policy-eligible passing workflows may create membership proposals automatically. Materialize additive changes in an isolated worktree, run repository checks, and create a branch/commit/pull request. Keep merge approval and any target-repository permission broadening explicit.
+
+**Exit gate:** repeated promotion is idempotent; existing coverage is never silently overwritten; rollback selects a prior immutable version; repository checks must pass before PR creation; failures leave a reviewable proposal and clean worktree; merge/deploy is never automatic.
+
+### 7. Deliver story-level traceability and operational SLOs
+
+Add an API, Command Center view, and export for Jira story/revision → criterion → planned test → manifest/version → run/rerun → evidence → regression membership. Add durable queue/workflow metrics, escalation counts, automation yield, false-escalation sampling, budget usage, and end-to-end latency. Define release gates and retention for the audit records.
+
+**Exit gate:** every displayed status is derived from persisted lineage; exports verify hashes and identify gaps/stale source revisions; dashboards distinguish application, test, infrastructure, policy, and review waits; a release run proves the complete non-production story-to-PR path with human review disabled except for deliberately injected escalation cases.
+
+## Default automation and review boundaries
+
+| Stage | Automated by default when policy permits | Human review or escalation |
+| --- | --- | --- |
+| Ingest and plan | Read Jira, normalize, plan, validate, and deduplicate | Missing/changed criteria, uncertain provider result, or source-revision drift |
+| Inspect and build manifest | Read-only semantic inspection and deterministic high-confidence mapping | Low confidence, unmatched required steps/assertions, undeclared data, or uncertain cleanup |
+| Approve and run | Exact policy revision authorizes exact manifest; budget is reserved atomically | Production target, disabled policy, exceeded budget, unsupported action, or requested authority expansion |
+| Triage and rerun | Known infrastructure/test-harness rules; exact-manifest bounded rerun | Ambiguous assertion failure, suspected product defect, exhausted retry budget, or conflicting evidence |
+| Evidence and regression proposal | Private upload, checksums/redaction, immutable catalog proposal, repository checks, and PR creation | Missing evidence, overwrite/conflict, failed checks, policy exception, merge, deploy, or external configuration change |
+
+Human review is therefore an explicit policy checkpoint and a safe fallback, not a mandatory step in the ordinary non-production path. Policy creation, activation, broadening, production access, merge, deployment, and external configuration changes remain operator actions.
+
+## Verification checkpoint
+
+- `dotnet test -c Release --no-build`: **204 passed, 1 skipped** against an isolated PostgreSQL schema and MinIO resources. Only the credential-dependent Azure integration test was skipped.
+- `npm run build`: **passed**.
+- `QUALITY_SMOKE_PORT=5090 npm test`: **5 passed**.
+- `npm run test:execution`: **10 passed**.
 
 Use local Qwen for bounded implementation drafts, test proposals, and reviews where practical. Review its output and execute verification through the supervising agent; Qwen does not have independent shell access.

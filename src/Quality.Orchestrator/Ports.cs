@@ -59,11 +59,35 @@ public interface IExecutionRequestStore
     Task CreateAsync(ExecutionRequest request, CancellationToken ct);
     Task<ExecutionRequest?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<ExecutionRequest>> ListByJobAsync(string jobId, CancellationToken ct);
-    // Atomically evaluates a durable policy canary budget after the current request is approved.
-    Task<bool> CanAutoLaunchAsync(string policyHash, int maximum, CancellationToken ct);
+    Task<ExecutionRequest?> CancelAsync(string id, DateTimeOffset now, CancellationToken ct);
+    // Atomically reserves lifetime, rolling-window, and concurrency budget for one approved request.
+    Task<ExecutionRequest?> TryReserveAutoLaunchAsync(string id, long expectedRevision, AutoLaunchBudget budget,
+        DateTimeOffset now, CancellationToken ct);
     Task<ExecutionRequest?> ClaimAsync(TimeSpan lease, CancellationToken ct);
     Task<ExecutionRequest> SaveAsync(ExecutionRequest request, long expectedRevision, CancellationToken ct);
 }
+public sealed record AutoLaunchBudget(string PolicyHash, int MaximumLifetime, int MaximumConcurrent,
+    int WindowSeconds, int MaximumInWindow);
+public interface IExecutionPolicyStore
+{
+    Task InitializeAsync(CancellationToken ct);
+    Task<IReadOnlyList<ExecutionPolicyRevision>> ListAsync(CancellationToken ct);
+    Task<ExecutionPolicyRevision?> GetAsync(string name, string version, CancellationToken ct);
+    Task<ExecutionPolicyRevision> CreateAsync(ExecutionPolicy policy, bool activate, DateTimeOffset now, CancellationToken ct);
+    Task<ExecutionPolicyRevision> SetStatusAsync(string name, string version, ExecutionPolicyStatus status, DateTimeOffset now, CancellationToken ct);
+}
+public interface IAutomationWorkflowStore
+{
+    Task<AutomationWorkflow> CreateOrGetAsync(AutomationWorkflow workflow, CancellationToken ct);
+    Task<AutomationWorkflow?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<AutomationWorkflow>> ListByJobAsync(string jobId, CancellationToken ct);
+    Task<AutomationWorkflow?> ClaimAsync(TimeSpan lease, CancellationToken ct);
+    Task<AutomationWorkflow> SaveAsync(AutomationWorkflow workflow, long expectedRevision, string leaseToken, CancellationToken ct);
+    Task<AutomationWorkflow> SaveReviewAsync(AutomationWorkflow workflow, long expectedRevision, CancellationToken ct);
+    Task<AutomationWorkflow?> CancelAsync(string id, DateTimeOffset now, CancellationToken ct);
+}
 public sealed class ExecutionRequestConflictException() : Exception("Execution request changed; reload before retrying");
+public sealed class ExecutionPolicyConflictException() : Exception("Execution policy revision already exists with different content or state");
+public sealed class AutomationWorkflowConflictException() : Exception("Automation workflow changed; reload before retrying");
 public sealed class IdempotencyConflictException() : Exception("Idempotency key was already used for a different request");
 public sealed class LeaseLostException() : Exception("Job lease expired or ownership changed");

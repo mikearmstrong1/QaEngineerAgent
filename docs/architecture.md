@@ -2,7 +2,7 @@
 
 ## Scope and boundaries
 
-This repository implements requirement ingestion, structured planning and reviewed browser execution for an engineering quality system. External requirements, LLM calls, artifact uploads, source-control proposals, and browser execution all have typed ports. Read-only Jira/Coda ingestion and structured OpenAI planning are optional; defaults remain synthetic for offline demos. The separate Playwright smoke suite exercises this service. An explicit reviewed-manifest CLI path executes selected tests with the Playwright adapter and stores independent run results; see [execution](playwright-execution.md).
+This repository implements requirement ingestion, structured planning, and reviewed or policy-approved browser execution for an engineering quality system. External requirements, LLM calls, artifact uploads, source-control proposals, and browser execution all have typed ports. Read-only Jira/Coda ingestion and structured OpenAI planning are optional; defaults remain synthetic for offline demos. The separate Playwright smoke suite exercises this service. An explicit reviewed-manifest CLI path executes selected tests with the Playwright adapter and stores independent run results; the Command Center/API also support non-production policy approval and bounded canary launch. See [execution](playwright-execution.md) and [Command Center autonomous execution](command-center.md#autonomous-execution).
 
 ```mermaid
 flowchart LR
@@ -22,7 +22,7 @@ Domain has no infrastructure dependency. Orchestrator depends on Domain, JsonSch
 
 ## Durable data and transitions
 
-`Requirement` records source reference/revision, actors, preconditions, criteria, and risks. `TestCase` links steps and expected results to acceptance criterion IDs. `TestPlan` groups cases with assumptions, coverage gaps, and prompt version. `AgentDecision` stores provider audit metadata. Explicit execution creates separate `TestRun` records and local evidence; `FailureAnalysis` remains a contract for a later slice.
+`Requirement` records source reference/revision, actors, preconditions, criteria, and risks. `TestCase` links steps and expected results to acceptance criterion IDs. `TestPlan` groups cases with assumptions, coverage gaps, and prompt version. `AgentDecision` stores provider audit metadata. Execution creates separate `ExecutionRequest` and `TestRun` records with local evidence; completed failures may receive an explicit persisted classification and review reason.
 
 A `QualityJob` stores its request, normalized requirement, plan, decisions, transition history, timestamps, error code, and concurrency metadata as one aggregate. PostgreSQL stores it as JSONB alongside indexed claim fields. Each save atomically replaces the aggregate and updates status/revision; outputs and provider-operation records commit together; the following stage transition is a separate recoverable save. History is embedded, not a separate event-sourcing system.
 
@@ -45,7 +45,7 @@ The package lockfiles are checked in. Playwright's package and browser image bot
 ## Deliberate limits
 
 - Live Jira/Coda/LLM access requires operator-supplied credentials; these integrations have fixture verification.
-- Browser tests are generated from a reviewed action manifest. Arbitrary code, healing and remote PR creation are not implemented. Passing reviewed tests can be proposed as isolated Git patches; remote evidence upload is available through MinIO.
+- Browser tests are generated from a hash-bound action manifest. A person may approve it, or an active immutable non-production policy revision may approve and launch a conforming deterministic draft after atomically reserving lifetime, rolling-window, and concurrency budget. PostgreSQL is the deployment policy/workflow store; file stores remain single-host fallbacks. Autonomous operation is a leased, retryable state machine with idempotent triggers and durable checkpoints from trigger through classification. Its ID is also the deterministic execution-request ID, so restart reconciliation cannot duplicate a browser run. Policy gates and exhausted budgets pause the same workflow for review; cancellation propagates to queued or running execution and fences late results. Arbitrary code, healing, and remote PR creation are not implemented. Passing approved tests can be proposed as isolated Git patches; remote evidence upload is available through MinIO or Azure.
 - API bearer-key authentication and submission idempotency are implemented. Tenant isolation and API rate limiting remain pending. Process-local [metrics](metrics.md) are implemented. Durable [job cancellation](job-cancellation.md) is implemented.
 - Test schemas validate wire shape; they do not prove coverage quality. The API validates incoming references, and smoke tests validate a real response against composed schemas. Runtime JSON Schema and traceability validation protects the structured planning boundary.
 - Live planning loads hash-pinned plan/v2 prompt/schema assets. Stub mode stays offline.

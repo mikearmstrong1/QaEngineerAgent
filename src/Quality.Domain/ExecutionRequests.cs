@@ -36,4 +36,7 @@ public sealed record ExecutionRequest(
     int Attempts = 0,
     string? AutomationPolicy = null,
     string? AutomationPolicyVersion = null,
-    string? AutomationPolicyHash = null);
+    string? AutomationPolicyHash = null,
+    string? AutomationPolicySnapshot = null,
+    string? AutomationEnvironment = null,
+    DateTimeOffset? AutoLaunchReservedAt = null);

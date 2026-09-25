@@ -41,15 +41,15 @@ Any saved edit clears the previous approval. Concurrent edits with a stale revis
 
 ## Autonomous execution
 
-**Execution policies** appears below the recent-jobs list. It seeds `command-center-baseline` as a non-production, read-only/manual-launch policy for the local Command Center. Select an existing policy to view and edit it, or choose **New policy** to create one. Policy names are lowercase letters, digits, and hyphens; origins are absolute HTTP(S) origins without credentials; actions are selected explicitly. Policies are written atomically to the server-side execution volume and survive API restarts.
+**Execution policy revisions** appears below the recent-jobs list. It seeds `command-center-baseline` as a non-production, read-only/manual-launch policy for the local Command Center. Policy content is immutable by name and version: create a new revision, then explicitly activate it. Activating a revision retires the previously active revision of the same policy name. Active revisions may be disabled; retired revisions cannot be reactivated. Policy names use lowercase letters, digits, and hyphens, while versions also allow periods and underscores. Origins are absolute HTTP(S) origins without credentials, and actions are selected explicitly. PostgreSQL deployments store revisions in PostgreSQL; file-store development migrates the legacy policy array into active revisions on first startup.
 
-Automatic approval and launch are disabled until **Non-production only** is selected, and auto-launch also requires automatic approval. The API independently validates timeout and canary limits, origins, actions, and these relationships. The policy registry under **Reviewed execution** continues to show the exact fingerprint and policy enforced for an autonomous request. Select an eligible policy, enter a target covered by that policy, and choose **Start autonomous execution**.
+Automatic approval and launch are disabled until **Non-production only** is selected, and auto-launch also requires automatic approval. Each revision names its environment and independently limits lifetime launches, simultaneous reserved/queued/running launches, and launches within a rolling time window. The API atomically reserves all three budgets before queueing, and independently validates timeout, origins, actions, and policy relationships. The policy registry under **Reviewed execution** shows the exact fingerprint and policy enforced for a workflow. Select an eligible policy, enter a covered target, and choose **Start automation workflow**. The workflow checkpoints inspection, manifest preparation, policy evaluation, review, queueing, execution, evidence, and classification. Policy gates or exhausted budgets pause at `AwaitingReview`; approval resumes the same workflow, while rejection or cancellation preserves the audit trail and stops future execution work.
 
-The API then creates a durable request, performs its read-only page inspection, prepares a manifest, validates it against the policy, records the policy identity and fingerprint, and auto-approves it. A policy may auto-launch only its configured canary budget; later requests remain **Approved** and can be queued through the ordinary control. The Command Center can manage policies, but all execution authorization remains API-side and policies never include credentials.
+The API then creates a durable request, performs its read-only page inspection, prepares a manifest, validates it against the active policy revision, and records the exact canonical policy snapshot plus its identity and fingerprint before auto-approval. A policy may auto-launch only its configured canary budget; later requests remain **Approved** and can be queued through the ordinary control. The Command Center can manage policy lifecycle, but all execution authorization remains API-side and policies never include credentials.
 
 ## Terminal parity
 
-Reviewed Playwright execution remains available through both the versioned `execution-*` commands and the original stateless CLI workflow. Failure classification and regression patch creation are available in both interfaces. The Command Center additionally previews and applies a reviewed patch to the configured target repository. Web controls invoke the same application services and preserve review hashes, promotion gates, and terminal commands.
+Reviewed Playwright execution remains available through the versioned `execution-*` commands. Policy revisions use `policy-list`, `policy-show`, `policy-create`, `policy-activate`, `policy-disable`, and `policy-retire`; `autonomous-execute` creates and advances the durable workflow used by the web API, while `automation-get`, `automation-review`, and `automation-cancel` provide terminal parity. Failure classification and regression patch creation remain available in both interfaces. The Command Center additionally previews and applies a reviewed patch to the configured target repository. Web controls invoke the same application services and preserve review hashes, promotion gates, and terminal commands.
 
 ## Promote a passing run
 
@@ -86,6 +86,11 @@ QUALITY_AUTONOMOUS_POLICY_NON_PRODUCTION=true
 QUALITY_AUTONOMOUS_POLICY_AUTO_APPROVE=true
 QUALITY_AUTONOMOUS_POLICY_AUTO_LAUNCH=true
 QUALITY_AUTONOMOUS_POLICY_CANARY_MAX_AUTO_LAUNCHES=1
+QUALITY_AUTONOMOUS_POLICY_ENVIRONMENT=local-command-center
+QUALITY_AUTONOMOUS_POLICY_MAX_CONCURRENT=1
+QUALITY_AUTONOMOUS_POLICY_WINDOW_SECONDS=3600
+QUALITY_AUTONOMOUS_POLICY_MAX_PER_WINDOW=1
 ```
 
 The Compose default actions are `goto`, `expectText`, and `expectVisible`. Override the three `QUALITY_AUTONOMOUS_POLICY_ACTION_*` variables only for declared, non-production test flows. Do not put credentials or production targets in this policy.
+The configured revision is seeded as active only when that name/version does not already exist. Changing content under an existing name/version fails startup instead of rewriting authorization history; increment the version and activate the new revision. A disabled or retired saved revision is not silently reactivated by a restart.

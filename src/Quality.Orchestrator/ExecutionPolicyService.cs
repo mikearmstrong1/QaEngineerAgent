@@ -1,25 +1,53 @@
 namespace Quality.Orchestrator;
 
-/// <summary>Coordinates seeded and operator-authored policies without treating browser input as executable configuration.</summary>
-public sealed class ExecutionPolicyService(ExecutionPolicyCatalog catalog, FileExecutionPolicyStore store, IEnumerable<ExecutionPolicy> seeded)
+/// <summary>Coordinates immutable operator-authored policy revisions and the active in-memory authorization catalog.</summary>
+public sealed class ExecutionPolicyService(ExecutionPolicyCatalog catalog, IExecutionPolicyStore store,
+    IEnumerable<ExecutionPolicy> seeded, TimeProvider clock)
 {
-    private readonly ExecutionPolicyCatalog catalog = catalog;
-    private readonly FileExecutionPolicyStore store = store;
     private readonly ExecutionPolicy[] seeded = seeded.ToArray();
+    private ExecutionPolicyRevision[] revisions = [];
 
     public async Task InitializeAsync(CancellationToken ct)
     {
-        var saved = await store.LoadAsync(ct);
-        foreach (var policy in seeded.Concat(saved).GroupBy(policy => policy.Name, StringComparer.Ordinal).Select(group => group.Last()))
-            catalog.Upsert(policy);
-        if (saved.Count == 0) await store.SaveAsync(catalog.Snapshot(), ct);
+        await store.InitializeAsync(ct);
+        var existing = await store.ListAsync(ct);
+        foreach (var policy in seeded)
+        {
+            var revision = existing.SingleOrDefault(item => item.Name == policy.Name && item.Version == policy.Version);
+            if (revision is null) await store.CreateAsync(policy, true, clock.GetUtcNow(), ct);
+            else if (revision.Fingerprint != policy.Fingerprint()) throw new ExecutionPolicyConflictException();
+        }
+        await RefreshAsync(ct);
     }
 
-    public IReadOnlyList<object> Describe() => catalog.Describe();
+    public IReadOnlyList<object> DescribeActive() => catalog.Snapshot()
+        .Select(policy => revisions.Single(item => item.Name == policy.Name && item.Version == policy.Version))
+        .Select(ExecutionPolicyCatalog.Describe).ToArray();
 
-    public async Task SaveAsync(ExecutionPolicy policy, CancellationToken ct)
+    public IReadOnlyList<object> Describe() => revisions.Select(ExecutionPolicyCatalog.Describe).ToArray();
+
+    public ExecutionPolicyRevision? Get(string name, string version)
+        => revisions.SingleOrDefault(item => item.Name == name && item.Version == version);
+
+    public async Task<ExecutionPolicyRevision> CreateAsync(ExecutionPolicy policy, bool activate, CancellationToken ct)
     {
-        catalog.Upsert(policy);
-        await store.SaveAsync(catalog.Snapshot(), ct);
+        var revision = await store.CreateAsync(policy, activate, clock.GetUtcNow(), ct);
+        await RefreshAsync(ct);
+        return revision;
+    }
+
+    public async Task<ExecutionPolicyRevision> SetStatusAsync(string name, string version,
+        ExecutionPolicyStatus status, CancellationToken ct)
+    {
+        if (status == ExecutionPolicyStatus.Draft) throw new ArgumentException("Use policy creation to create a Draft revision");
+        var revision = await store.SetStatusAsync(name, version, status, clock.GetUtcNow(), ct);
+        await RefreshAsync(ct);
+        return revision;
+    }
+
+    private async Task RefreshAsync(CancellationToken ct)
+    {
+        revisions = (await store.ListAsync(ct)).ToArray();
+        catalog.Replace(revisions.Where(item => item.Status == ExecutionPolicyStatus.Active).Select(item => item.Policy));
     }
 }

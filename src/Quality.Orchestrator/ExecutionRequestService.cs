@@ -20,7 +20,8 @@ public sealed class ExecutionRequestService(
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    public async Task<ExecutionRequest> CreateAsync(string jobId, string target, CancellationToken ct, ExecutionPolicy? automationPolicy = null)
+    public async Task<ExecutionRequest> CreateAsync(string jobId, string target, CancellationToken ct,
+        ExecutionPolicy? automationPolicy = null, string? requestId = null)
     {
         var job = await CompletedJobAsync(jobId, ct);
         if (!Uri.TryCreate(target, UriKind.Absolute, out var targetUri) || targetUri.Scheme is not ("http" or "https")
@@ -34,10 +35,20 @@ public sealed class ExecutionRequestService(
             job.TestPlan.TestCases.Select(test => new ExecutionTest(test.Id, [])).ToArray());
         var json = JsonSerializer.Serialize(manifest, ContractJson.Options);
         var now = clock.GetUtcNow();
-        var request = new ExecutionRequest(Guid.NewGuid().ToString("N"), job.Id, job.TestPlan.Id, target,
+        requestId ??= Guid.NewGuid().ToString("N");
+        if (!Guid.TryParseExact(requestId, "N", out _)) throw new ArgumentException("Execution request id is invalid");
+        if (await requests.GetAsync(requestId, ct) is { } existing)
+        {
+            if (existing.JobId != job.Id || existing.Target != target ||
+                existing.AutomationPolicyHash != automationPolicy?.Fingerprint())
+                throw new IdempotencyConflictException();
+            return existing;
+        }
+        var request = new ExecutionRequest(requestId, job.Id, job.TestPlan.Id, target,
             ExecutionRequestStatus.Draft, json, ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)), 0, now, now,
             AutomationPolicy: automationPolicy?.Name, AutomationPolicyVersion: automationPolicy?.Version,
-            AutomationPolicyHash: automationPolicy?.Fingerprint());
+            AutomationPolicyHash: automationPolicy?.Fingerprint(), AutomationPolicySnapshot: automationPolicy?.CanonicalJson(),
+            AutomationEnvironment: automationPolicy?.Environment);
         await requests.CreateAsync(request, ct);
         return request;
     }
@@ -45,6 +56,8 @@ public sealed class ExecutionRequestService(
     public Task<ExecutionRequest?> GetAsync(string id, CancellationToken ct) => requests.GetAsync(id, ct);
     public Task<IReadOnlyList<ExecutionRequest>> ListByJobAsync(string jobId, CancellationToken ct)
         => requests.ListByJobAsync(jobId, ct);
+    public Task<ExecutionRequest?> CancelAsync(string id, CancellationToken ct)
+        => requests.CancelAsync(id, clock.GetUtcNow(), ct);
 
     public async Task<UiInspection> InspectAsync(string id, IUiInspector inspector, CancellationToken ct)
     {
@@ -75,10 +88,19 @@ public sealed class ExecutionRequestService(
             ?? throw new InvalidOperationException("Prepared manifest is missing");
         policy.ValidateManifest(manifest);
         request = await ApproveAsync(request.Id, request.Revision, request.ManifestHash, policy.ReviewerIdentity(), ct);
-        if (!policy.AutoLaunch || policy.CanaryMaxAutoLaunches < 1 || request.AutomationPolicyHash is null
-            || !await requests.CanAutoLaunchAsync(request.AutomationPolicyHash, policy.CanaryMaxAutoLaunches, ct))
+        if (!policy.AutoLaunch || policy.CanaryMaxAutoLaunches < 1 || request.AutomationPolicyHash is null)
             return request;
-        return await LaunchAsync(request.Id, request.Revision, ct);
+        var reserved = await ReserveAutoLaunchAsync(request, policy, ct);
+        return reserved is null ? request : await LaunchAsync(reserved.Id, reserved.Revision, ct);
+    }
+
+    public Task<ExecutionRequest?> ReserveAutoLaunchAsync(ExecutionRequest request, ExecutionPolicy policy, CancellationToken ct)
+    {
+        if (request.AutomationPolicyHash != policy.Fingerprint())
+            throw new ArgumentException("Execution request policy snapshot does not match");
+        return requests.TryReserveAutoLaunchAsync(request.Id, request.Revision,
+            new(request.AutomationPolicyHash, policy.CanaryMaxAutoLaunches, policy.MaxConcurrentAutoLaunches,
+                policy.AutoLaunchWindowSeconds, policy.MaxAutoLaunchesPerWindow), clock.GetUtcNow(), ct);
     }
 
     public async Task<ExecutionRequest> UpdateManifestAsync(string id, long revision, byte[] manifestBytes, CancellationToken ct)
@@ -150,15 +172,18 @@ public sealed class ExecutionRequestService(
         // Covers the maximum 315-second runner window plus the publisher's five-minute budget and checkpoint overhead.
         var running = await requests.ClaimAsync(TimeSpan.FromMinutes(15), ct);
         if (running is null || running.Status != ExecutionRequestStatus.Running) return running;
+        using var executionCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var monitorStop = new CancellationTokenSource();
+        var monitor = MonitorCancellationAsync(running.Id, executionCancellation, monitorStop.Token);
         try
         {
-            var job = await CompletedJobAsync(running.JobId, ct);
+            var job = await CompletedJobAsync(running.JobId, executionCancellation.Token);
             var bytes = Encoding.UTF8.GetBytes(running.ManifestJson);
             if (running.Approval?.ManifestHash != running.ManifestHash || ExecutionManifest.Hash(bytes) != running.ManifestHash)
                 throw new InvalidOperationException("Persisted manifest integrity check failed");
-            var run = await executor.ExecuteReviewedAsync(job.TestPlan!, bytes, running.ManifestHash, ct);
+            var run = await executor.ExecuteReviewedAsync(job.TestPlan!, bytes, running.ManifestHash, executionCancellation.Token);
             if (publisher is not null && artifactStore?.Provider != "Local")
-                run = await publisher.PublishAsync(run.Id, ct);
+                run = await publisher.PublishAsync(run.Id, executionCancellation.Token);
             var status = Enum.TryParse<ExecutionRequestStatus>(run.Status, out var parsed) ? parsed : ExecutionRequestStatus.Failed;
             return await requests.SaveAsync(running with
             {
@@ -170,6 +195,10 @@ public sealed class ExecutionRequestService(
                 LeaseUntil = null
             }, running.Revision, ct);
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && executionCancellation.IsCancellationRequested)
+        {
+            return await requests.GetAsync(running.Id, CancellationToken.None);
+        }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             await TryFinishAsync(running, ExecutionRequestStatus.Cancelled, "execution_cancelled", CancellationToken.None);
@@ -179,6 +208,24 @@ public sealed class ExecutionRequestService(
         {
             await TryFinishAsync(running, ExecutionRequestStatus.InfrastructureFailed, ex.GetType().Name, CancellationToken.None);
             throw;
+        }
+        finally
+        {
+            monitorStop.Cancel();
+            try { await monitor; } catch (OperationCanceledException) { }
+        }
+    }
+
+    private async Task MonitorCancellationAsync(string id, CancellationTokenSource executionCancellation, CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            await Task.Delay(250, stop);
+            if (await requests.GetAsync(id, stop) is { Status: ExecutionRequestStatus.Cancelled })
+            {
+                await executionCancellation.CancelAsync();
+                return;
+            }
         }
     }
 

@@ -34,27 +34,104 @@ public sealed class PostgresExecutionRequestStore(NpgsqlDataSource dataSource) :
         return items;
     }
 
-    public async Task<bool> CanAutoLaunchAsync(string policyHash, int maximum, CancellationToken ct)
+    public async Task<ExecutionRequest?> CancelAsync(string id, DateTimeOffset ignored, CancellationToken ct)
     {
-        if (policyHash.Length != 64 || maximum < 1) return false;
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await using var select = connection.CreateCommand();
+        select.CommandText = "SELECT document::text, clock_timestamp() FROM quality_execution_requests WHERE id=$1 FOR UPDATE";
+        select.Parameters.AddWithValue(id);
+        ExecutionRequest current;
+        DateTimeOffset now;
+        await using (var reader = await select.ExecuteReaderAsync(ct))
+        {
+            if (!await reader.ReadAsync(ct)) return null;
+            current = Deserialize(reader.GetString(0));
+            now = new DateTimeOffset(reader.GetDateTime(1));
+        }
+        if (current.Status is ExecutionRequestStatus.Passed or ExecutionRequestStatus.Failed
+            or ExecutionRequestStatus.TimedOut or ExecutionRequestStatus.InfrastructureFailed or ExecutionRequestStatus.Cancelled)
+            return current;
+        var cancelled = current with { Status = ExecutionRequestStatus.Cancelled, UpdatedAt = now,
+            Error = "automation_cancelled", LeaseToken = null, LeaseUntil = null, Revision = current.Revision + 1 };
+        await using var update = connection.CreateCommand();
+        update.CommandText = """
+            UPDATE quality_execution_requests SET status='Cancelled', revision=$2, lease_token=NULL,
+                lease_until=NULL, document=$3::jsonb WHERE id=$1
+            """;
+        update.Parameters.AddWithValue(cancelled.Id);
+        update.Parameters.AddWithValue(cancelled.Revision);
+        update.Parameters.AddWithValue(JsonSerializer.Serialize(cancelled, ContractJson.Options));
+        await update.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+        return cancelled;
+    }
+
+    public async Task<ExecutionRequest?> TryReserveAutoLaunchAsync(string id, long expectedRevision,
+        AutoLaunchBudget budget, DateTimeOffset now, CancellationToken ct)
+    {
+        if (budget.PolicyHash.Length != 64 || budget.MaximumLifetime is < 1 or > 100
+            || budget.MaximumConcurrent is < 1 or > 100 || budget.WindowSeconds is < 60 or > 86400
+            || budget.MaximumInWindow is < 1 or > 1000)
+            throw new ArgumentException("Automatic launch budget is invalid");
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await using (var lockCommand = connection.CreateCommand())
         {
             lockCommand.CommandText = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))";
-            lockCommand.Parameters.AddWithValue(policyHash);
+            lockCommand.Parameters.AddWithValue(budget.PolicyHash);
             await lockCommand.ExecuteNonQueryAsync(ct);
         }
+        ExecutionRequest current;
+        await using (var select = connection.CreateCommand())
+        {
+            select.CommandText = "SELECT document::text, clock_timestamp() FROM quality_execution_requests WHERE id=$1 FOR UPDATE";
+            select.Parameters.AddWithValue(id);
+            await using var reader = await select.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) throw new ExecutionRequestConflictException();
+            current = Deserialize(reader.GetString(0));
+            now = new DateTimeOffset(reader.GetDateTime(1));
+        }
+        if (current.Revision != expectedRevision) throw new ExecutionRequestConflictException();
+        if (current.Status != ExecutionRequestStatus.Approved || current.AutomationPolicyHash != budget.PolicyHash)
+            throw new ArgumentException("Only a policy-approved request can reserve an automatic launch");
+        if (current.AutoLaunchReservedAt is not null) { await tx.CommitAsync(ct); return current; }
         await using var count = connection.CreateCommand();
         count.CommandText = """
-            SELECT count(*) FROM quality_execution_requests
+            SELECT count(*),
+                   count(*) FILTER (WHERE status IN ('Approved', 'Queued', 'Running')),
+                   count(*) FILTER (WHERE (document->>'autoLaunchReservedAt')::timestamptz >= $2)
+            FROM quality_execution_requests
             WHERE document->>'automationPolicyHash'=$1
-              AND status NOT IN ('Draft', 'AwaitingApproval')
+              AND document->>'autoLaunchReservedAt' IS NOT NULL
             """;
-        count.Parameters.AddWithValue(policyHash);
-        var used = Convert.ToInt32(await count.ExecuteScalarAsync(ct));
+        count.Parameters.AddWithValue(budget.PolicyHash);
+        count.Parameters.AddWithValue(now.AddSeconds(-budget.WindowSeconds));
+        int lifetime, concurrent, inWindow;
+        await using (var reader = await count.ExecuteReaderAsync(ct))
+        {
+            await reader.ReadAsync(ct);
+            lifetime = checked((int)reader.GetInt64(0));
+            concurrent = checked((int)reader.GetInt64(1));
+            inWindow = checked((int)reader.GetInt64(2));
+        }
+        if (lifetime >= budget.MaximumLifetime || concurrent >= budget.MaximumConcurrent || inWindow >= budget.MaximumInWindow)
+        {
+            await tx.CommitAsync(ct);
+            return null;
+        }
+        var saved = current with { AutoLaunchReservedAt = now, UpdatedAt = now, Revision = current.Revision + 1 };
+        await using var update = connection.CreateCommand();
+        update.CommandText = """
+            UPDATE quality_execution_requests SET revision=$2, document=$3::jsonb WHERE id=$1 AND revision=$4
+            """;
+        update.Parameters.AddWithValue(saved.Id);
+        update.Parameters.AddWithValue(saved.Revision);
+        update.Parameters.AddWithValue(JsonSerializer.Serialize(saved, ContractJson.Options));
+        update.Parameters.AddWithValue(expectedRevision);
+        if (await update.ExecuteNonQueryAsync(ct) != 1) throw new ExecutionRequestConflictException();
         await tx.CommitAsync(ct);
-        return used <= maximum;
+        return saved;
     }
 
     public async Task<ExecutionRequest> SaveAsync(ExecutionRequest request, long expectedRevision, CancellationToken ct)

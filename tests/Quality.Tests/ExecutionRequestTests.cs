@@ -80,6 +80,42 @@ public sealed class ExecutionRequestTests
     }
 
     [Fact]
+    public async Task DurableCancellationStopsARunningExecutorAndFencesItsResult()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-execution-cancel-running-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var jobs = new FileJobStore(Path.Combine(root, "jobs"), TimeProvider.System);
+            await jobs.InitializeAsync(default);
+            var plan = Plan();
+            var now = DateTimeOffset.UtcNow;
+            var job = new QualityJob(Guid.NewGuid().ToString("N"), new("stub", "REQ-1"), JobStatus.Completed,
+                now, now, 0, null, plan, [], [], null, null, null);
+            await jobs.CreateAsync(job, default);
+            var executor = new BlockingExecutor();
+            var service = new ExecutionRequestService(new FileExecutionRequestStore(Path.Combine(root, "requests")), jobs,
+                executor, new(root, ["http://127.0.0.1:8000"]), TimeProvider.System);
+            var request = await service.CreateAsync(job.Id, "http://127.0.0.1:8000/", default);
+            var manifest = new ExecutionManifest(plan.Id, ExecutionManifest.HashPlan(plan), request.Target,
+                [new("TC-1", [new("expectVisible", "h1", null)])]);
+            request = await service.UpdateManifestAsync(request.Id, request.Revision,
+                Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, ContractJson.Options)), default);
+            request = await service.ApproveAsync(request.Id, request.Revision, request.ManifestHash, "reviewer", default);
+            await service.LaunchAsync(request.Id, request.Revision, default);
+
+            var processing = service.ProcessNextAsync(default);
+            await executor.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var cancelled = await service.CancelAsync(request.Id, default);
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(ExecutionRequestStatus.Cancelled, cancelled!.Status);
+            Assert.Equal(ExecutionRequestStatus.Cancelled, result!.Status);
+            Assert.True(executor.Cancelled);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task ConcurrentManifestEditIsRejected()
     {
         var root = Path.Combine(Path.GetTempPath(), "quality-execution-conflict-" + Guid.NewGuid().ToString("N"));
@@ -184,11 +220,15 @@ public sealed class ExecutionRequestTests
             Assert.Equal(policy.Name, request.AutomationPolicy);
             Assert.Equal(policy.Version, request.AutomationPolicyVersion);
             Assert.Equal(policy.Fingerprint(), request.AutomationPolicyHash);
+            Assert.Equal(policy.CanonicalJson(), request.AutomationPolicySnapshot);
+            Assert.Equal(policy.Environment, request.AutomationEnvironment);
+            Assert.NotNull(request.AutoLaunchReservedAt);
             Assert.Equal(policy.ReviewerIdentity(), request.Approval!.Reviewer);
 
             var held = await service.CreateAutonomousAsync(job.Id, "http://127.0.0.1:8000/", policy.Name,
                 new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
             Assert.Equal(ExecutionRequestStatus.Approved, held.Status);
+            Assert.Null(held.AutoLaunchReservedAt);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
@@ -265,5 +305,19 @@ public sealed class ExecutionRequestTests
     private sealed class StaticInspector(UiInspection result) : IUiInspector
     {
         public Task<UiInspection> InspectAsync(Uri target, CancellationToken ct) => Task.FromResult(result);
+    }
+
+    private sealed class BlockingExecutor : IReviewedTestExecutor
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Cancelled { get; private set; }
+        public Task<TestRun> ExecuteAsync(TestPlan plan, Uri baseUrl, CancellationToken ct) => throw new NotSupportedException();
+        public async Task<TestRun> ExecuteReviewedAsync(TestPlan plan, byte[] manifestBytes, string reviewedSha256, CancellationToken ct)
+        {
+            Started.TrySetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { Cancelled = true; throw; }
+            throw new InvalidOperationException();
+        }
     }
 }

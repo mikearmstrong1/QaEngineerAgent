@@ -48,6 +48,40 @@ internal static class PostgresMigrations
         );
         CREATE INDEX ix_quality_test_runs_plan
             ON quality_test_runs(test_plan_id, started_at DESC);
+        """, """
+        CREATE TABLE IF NOT EXISTS quality_execution_policy_revisions (
+            name text NOT NULL,
+            version text NOT NULL,
+            fingerprint text NOT NULL,
+            status text NOT NULL CHECK (status IN ('Draft', 'Active', 'Disabled', 'Retired')),
+            created_at timestamptz NOT NULL,
+            updated_at timestamptz NOT NULL,
+            document jsonb NOT NULL,
+            PRIMARY KEY (name, version),
+            UNIQUE (fingerprint)
+        );
+        CREATE UNIQUE INDEX ux_quality_execution_policy_active
+            ON quality_execution_policy_revisions(name) WHERE status='Active';
+        """, """
+        CREATE TABLE quality_automation_workflows (
+            id text PRIMARY KEY,
+            job_id text NOT NULL REFERENCES quality_jobs(id),
+            idempotency_key_hash text NOT NULL UNIQUE,
+            status text NOT NULL CHECK (status IN
+                ('Triggered','Planned','Inspected','ManifestPrepared','PolicyEvaluated','AwaitingReview',
+                 'Approved','Queued','Executed','EvidencePublished','Classified','Completed','Failed','Cancelled')),
+            revision bigint NOT NULL,
+            lease_token text NULL,
+            lease_until timestamptz NULL,
+            next_attempt_at timestamptz NULL,
+            created_at timestamptz NOT NULL,
+            document jsonb NOT NULL
+        );
+        CREATE INDEX ix_quality_automation_workflows_job
+            ON quality_automation_workflows(job_id, created_at DESC);
+        CREATE INDEX ix_quality_automation_workflows_claim
+            ON quality_automation_workflows(created_at)
+            WHERE status NOT IN ('AwaitingReview','Completed','Failed','Cancelled');
         """];
 
     public static async Task ApplyAsync(NpgsqlDataSource source, CancellationToken ct)

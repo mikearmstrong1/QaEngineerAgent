@@ -1,7 +1,11 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
+import os from 'node:os';
 const artifacts = process.env.QUALITY_ARTIFACT_DIR;
 const baseURL = process.env.QUALITY_BASE_URL ?? `http://127.0.0.1:${process.env.QUALITY_SMOKE_PORT ?? '5080'}`;
+const runRoot = path.join(os.tmpdir(), 'quality-smoke', String(process.pid));
+const dataDirectory = path.join(runRoot, 'jobs');
+const executionDirectory = path.join(runRoot, 'executions');
 export default defineConfig({
   testDir: './tests', fullyParallel: true, retries: 0,
   outputDir: artifacts ? path.join(artifacts, 'test-results') : './test-results',
@@ -13,6 +17,7 @@ export default defineConfig({
     url: `${baseURL}/ready`, reuseExistingServer: false, timeout: 30000,
     env: { Quality__Api__Key: process.env.QUALITY_API_KEY ?? '', Quality__Api__AllowAnonymous: process.env.QUALITY_API_KEY ? 'false' : 'true', ASPNETCORE_URLS: baseURL, Quality__Store: 'File', Quality__RunWorker: 'true', Logging__LogLevel__Default: 'Warning',
       Quality__Artifacts__Mode: 'Local', Quality__Requirements__Mode: 'Stub', Quality__Planning__Mode: 'Stub',
-      Quality__DataDirectory: path.resolve(__dirname, '../data/smoke-jobs') },
+      Quality__DataDirectory: dataDirectory,
+      Quality__Execution__RunDirectory: executionDirectory },
   },
 });

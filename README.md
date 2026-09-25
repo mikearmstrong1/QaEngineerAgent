@@ -82,7 +82,7 @@ Check each section before using the plan:
 - **Coverage gaps:** Decide whether the Jira story needs more detail.
 - **Model metadata:** Confirm the plan came from the expected provider and model.
 
-The Command Center creates and reviews plans, persists versioned execution manifests, records exact-hash approval, launches the approved bytes, shows runs and evidence, and lets a person classify failures. It does not run an unapproved manifest or change source code automatically.
+The Command Center creates and reviews plans, persists versioned execution manifests, records exact-hash human or policy approval, launches only the approved bytes, shows runs and evidence, and lets a person classify failures. A named non-production policy may auto-approve and canary-launch a conforming generated manifest; policy creation or broadening remains an operator action. It does not run an unapproved manifest or change source code automatically. See [Command Center autonomous execution](docs/command-center.md#autonomous-execution).
 
 ## Everyday commands
 
@@ -152,6 +152,21 @@ curl 'http://127.0.0.1:5080/jobs?limit=20' \
 ```
 
 Pass the returned `nextCursor` as `?limit=20&cursor=NEXT_CURSOR` to load older jobs.
+
+### Manage autonomous policy revisions
+
+Policy content is immutable by name and version. Create a draft from the checked-in example, inspect it, and activate it explicitly:
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  policy-create --file /app/schemas/examples/execution-policy.json
+docker compose --profile cli run --rm oneshot \
+  policy-show --name local-readonly --version v1
+docker compose --profile cli run --rm oneshot \
+  policy-activate --name local-readonly --version v1
+```
+
+Use `policy-list`, `policy-disable`, or `policy-retire` for the remaining lifecycle operations. A retired revision cannot be reactivated. `autonomous-execute --job JOB_ID --target URL --policy NAME --idempotency-key TRIGGER_ID` creates and advances the same durable workflow used by the Command Center. Inspect or act on a paused workflow with `automation-get`, `automation-review`, and `automation-cancel`.
 
 ## Run a reviewed browser test
 

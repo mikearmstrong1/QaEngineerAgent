@@ -10,10 +10,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "execution-create" or "execution-list" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "execution-create" or "execution-list" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -61,8 +61,90 @@ try
         mode == "api" && builder.Configuration.GetValue<bool>("Quality:RunWorker"));
     await using var app = builder.Build();
     await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
-    if (mode == "api") await app.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
+    if (mode == "api" || mode.StartsWith("policy-", StringComparison.Ordinal) || mode == "autonomous-execute"
+        || mode.StartsWith("automation-", StringComparison.Ordinal))
+        await app.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
     var jobs = app.Services.GetRequiredService<JobService>();
+    if (mode.StartsWith("policy-", StringComparison.Ordinal))
+    {
+        var policies = app.Services.GetRequiredService<ExecutionPolicyService>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        if (mode == "policy-list")
+        {
+            if (args.Length != 1) throw new ArgumentException("policy-list takes no arguments");
+            Console.WriteLine(JsonSerializer.Serialize(new { items = policies.Describe() }, ContractJson.Options));
+            return 0;
+        }
+        if (mode == "policy-show")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--name", "--version"]);
+            var revision = policies.Get(parsed["--name"], parsed["--version"]);
+            if (revision is null) { Console.Error.WriteLine("Execution policy revision not found"); return 3; }
+            Console.WriteLine(JsonSerializer.Serialize(revision, ContractJson.Options));
+            return 0;
+        }
+        if (mode == "policy-create")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--file"]);
+            var path = parsed["--file"];
+            if (!File.Exists(path) || new FileInfo(path).Length > 1024 * 1024) throw new ArgumentException("Policy file is missing or too large");
+            var strict = new JsonSerializerOptions(ContractJson.Options) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+            var policy = JsonSerializer.Deserialize<ExecutionPolicy>(await File.ReadAllBytesAsync(path, timeout.Token), strict)
+                ?? throw new ArgumentException("Execution policy is required");
+            Console.WriteLine(JsonSerializer.Serialize(await policies.CreateAsync(policy, false, timeout.Token), ContractJson.Options));
+            return 0;
+        }
+        var options = ParseOptions(args.Skip(1).ToArray(), ["--name", "--version"]);
+        var status = mode == "policy-activate" ? ExecutionPolicyStatus.Active
+            : mode == "policy-disable" ? ExecutionPolicyStatus.Disabled : ExecutionPolicyStatus.Retired;
+        Console.WriteLine(JsonSerializer.Serialize(await policies.SetStatusAsync(options["--name"], options["--version"], status, timeout.Token), ContractJson.Options));
+        return 0;
+    }
+    if (mode == "autonomous-execute")
+    {
+        var parsed = ParseOptions(args.Skip(1).ToArray(), ["--job", "--target", "--policy"], ["--idempotency-key"]);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var service = app.Services.GetRequiredService<AutomationWorkflowService>();
+        var workflow = await service.CreateAsync(parsed["--job"], parsed["--target"], parsed["--policy"],
+            parsed.GetValueOrDefault("--idempotency-key"), timeout.Token);
+        while (workflow.Status is not (AutomationWorkflowStatus.AwaitingReview or AutomationWorkflowStatus.Queued
+            or AutomationWorkflowStatus.Completed or AutomationWorkflowStatus.Failed or AutomationWorkflowStatus.Cancelled))
+        {
+            await service.ProcessNextAsync(timeout.Token);
+            workflow = await service.GetAsync(workflow.Id, timeout.Token) ?? throw new InvalidOperationException("Workflow disappeared");
+        }
+        Console.WriteLine(JsonSerializer.Serialize(workflow, ContractJson.Options));
+        return 0;
+    }
+    if (mode.StartsWith("automation-", StringComparison.Ordinal))
+    {
+        var service = app.Services.GetRequiredService<AutomationWorkflowService>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        if (mode == "automation-get")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--id"]);
+            var workflow = await service.GetAsync(parsed["--id"], timeout.Token);
+            if (workflow is null) { Console.Error.WriteLine("Automation workflow not found"); return 3; }
+            Console.WriteLine(JsonSerializer.Serialize(workflow, ContractJson.Options));
+            return 0;
+        }
+        if (mode == "automation-cancel")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--id"]);
+            var workflow = await service.CancelAsync(parsed["--id"], timeout.Token);
+            if (workflow is null) { Console.Error.WriteLine("Automation workflow not found"); return 3; }
+            Console.WriteLine(JsonSerializer.Serialize(workflow, ContractJson.Options));
+            return 0;
+        }
+        var review = ParseOptions(args.Skip(1).ToArray(), ["--id", "--revision", "--decision", "--reviewer"]);
+        if (!long.TryParse(review["--revision"], out var revision) || revision < 0)
+            throw new ArgumentException("revision must be a non-negative integer");
+        var approve = review["--decision"] switch { "approve" => true, "reject" => false,
+            _ => throw new ArgumentException("decision must be approve or reject") };
+        Console.WriteLine(JsonSerializer.Serialize(await service.ReviewAsync(review["--id"], revision, approve,
+            review["--reviewer"], timeout.Token), ContractJson.Options));
+        return 0;
+    }
     if (mode.StartsWith("execution-", StringComparison.Ordinal))
     {
         var service = app.Services.GetRequiredService<ExecutionRequestService>();
@@ -277,9 +359,11 @@ try
     {
         allowedOrigins = execution.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Distinct(StringComparer.Ordinal).Order().ToArray(),
         supportedActions = new[] { "goto", "click", "fill", "expectText", "expectVisible", "expectUrl" },
-        autonomousPolicies = policies.Describe()
+        autonomousPolicies = policies.DescribeActive()
     }));
     app.MapGet("/execution-policies", (ExecutionPolicyService policies) => Results.Ok(new { items = policies.Describe() }));
+    app.MapGet("/execution-policies/{name}/revisions/{version}", (string name, string version, ExecutionPolicyService policies) =>
+        policies.Get(name, version) is { } revision ? Results.Ok(revision) : Results.NotFound());
     app.MapPut("/execution-policies/{name}", async (string name, ExecutionPolicyInput input, ExecutionPolicyService policies, CancellationToken ct) =>
     {
         if (!string.Equals(name, input.Name, StringComparison.Ordinal))
@@ -287,18 +371,70 @@ try
         try
         {
             var policy = new ExecutionPolicy(input.Name ?? "", input.Version ?? "", input.AllowedOrigins ?? [], input.AllowedActions ?? [],
-                input.MaxTimeoutSeconds, input.NonProduction, input.AutoApprove, input.AutoLaunch, input.CanaryMaxAutoLaunches);
-            await policies.SaveAsync(policy, ct);
+                input.MaxTimeoutSeconds, input.NonProduction, input.AutoApprove, input.AutoLaunch, input.CanaryMaxAutoLaunches,
+                input.Environment ?? "default", input.MaxConcurrentAutoLaunches, input.AutoLaunchWindowSeconds,
+                input.MaxAutoLaunchesPerWindow);
+            await policies.CreateAsync(policy, false, ct);
             return Results.Ok(new { items = policies.Describe() });
         }
+        catch (ExecutionPolicyConflictException ex) { return Results.Conflict(new { error = "execution_policy_conflict", detail = ex.Message }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["policy"] = [ex.Message] }); }
         catch (UriFormatException) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["policy"] = ["Allowed origins must be absolute HTTP(S) origins without credentials"] }); }
     });
-    app.MapPost("/jobs/{id}/autonomous-executions", async (string id, CreateAutonomousExecution input, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
+    app.MapPost("/execution-policies/{name}/revisions/{version}/{operation}", async (string name, string version,
+        string operation, ExecutionPolicyService policies, CancellationToken ct) =>
+    {
+        var status = operation switch
+        {
+            "activate" => ExecutionPolicyStatus.Active,
+            "disable" => ExecutionPolicyStatus.Disabled,
+            "retire" => ExecutionPolicyStatus.Retired,
+            _ => (ExecutionPolicyStatus?)null
+        };
+        if (status is null) return Results.NotFound();
+        try { return Results.Ok(await policies.SetStatusAsync(name, version, status.Value, ct)); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["policy"] = [ex.Message] }); }
+    });
+    app.MapPost("/jobs/{id}/autonomous-executions", async (string id, CreateAutonomousExecution input,
+        HttpRequest http, AutomationWorkflowService workflows, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
-        try { return Results.Accepted("/execution-requests", await executions.CreateAutonomousAsync(id, input.Target ?? "", input.PolicyName ?? "", inspector, ct)); }
+        try
+        {
+            var keys = http.Headers["Idempotency-Key"];
+            if (keys.Count > 1) return Results.BadRequest(new { error = "multiple_idempotency_keys" });
+            var workflow = await workflows.CreateAsync(id, input.Target ?? "", input.PolicyName ?? "",
+                keys.Count == 0 ? input.IdempotencyKey : keys.ToString(), ct);
+            return Results.Accepted($"/automation-workflows/{workflow.Id}", workflow);
+        }
+        catch (IdempotencyConflictException) { return Results.Conflict(new { error = "idempotency_key_conflict" }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["autonomousExecution"] = [ex.Message] }); }
+    });
+    app.MapGet("/jobs/{id}/automation-workflows", async (string id, AutomationWorkflowService workflows, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        return Results.Ok(new { items = await workflows.ListByJobAsync(id, ct) });
+    });
+    app.MapGet("/automation-workflows/{id}", async (string id, AutomationWorkflowService workflows, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_workflow_id" });
+        var workflow = await workflows.GetAsync(id, ct);
+        return workflow is null ? Results.NotFound() : Results.Ok(workflow);
+    });
+    app.MapPost("/automation-workflows/{id}/review", async (string id, ReviewAutomationWorkflow input,
+        AutomationWorkflowService workflows, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_workflow_id" });
+        try { return Results.Ok(await workflows.ReviewAsync(id, input.Revision, input.Approve,
+            input.Reviewer ?? "", ct)); }
+        catch (AutomationWorkflowConflictException ex) { return Results.Conflict(new { error = "automation_workflow_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["review"] = [ex.Message] }); }
+    });
+    app.MapPost("/automation-workflows/{id}/cancel", async (string id, AutomationWorkflowService workflows, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_workflow_id" });
+        var workflow = await workflows.CancelAsync(id, ct);
+        return workflow is null ? Results.NotFound() : Results.Ok(workflow);
     });
     app.MapPost("/execution-requests/{id}/inspect", async (string id, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
     {
@@ -495,12 +631,15 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton<PostgresJobStore>();
         services.AddSingleton<IJobStore>(sp => new MeteredJobStore(sp.GetRequiredService<PostgresJobStore>(), sp.GetRequiredService<JobMetrics>()));
         services.AddSingleton<IExecutionRequestStore, PostgresExecutionRequestStore>();
+        services.AddSingleton<IAutomationWorkflowStore, PostgresAutomationWorkflowStore>();
     }
     else if (storeKind.Equals("File", StringComparison.OrdinalIgnoreCase))
     {
         var dataDirectory = configuration["Quality:DataDirectory"] ?? "./data/jobs";
         services.AddSingleton<IJobStore>(sp => new MeteredJobStore(new FileJobStore(dataDirectory, sp.GetRequiredService<TimeProvider>()), sp.GetRequiredService<JobMetrics>()));
         services.AddSingleton<IExecutionRequestStore>(new FileExecutionRequestStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "execution-requests")));
+        services.AddSingleton<IAutomationWorkflowStore>(new FileAutomationWorkflowStore(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "automation-workflows")));
     }
     else throw new ArgumentException("Quality__Store must be File or Postgres");
     var sourceKind = configuration["Quality:Requirements:Mode"] ?? "Stub";
@@ -584,21 +723,25 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         execution["NodeExecutable"] ?? "node"));
     var configuredPolicies = execution.GetSection("Policies").Get<ExecutionPolicy[]>()?
         .Where(policy => !string.IsNullOrWhiteSpace(policy.Name)).ToArray() ?? [];
-    var baselinePolicy = new ExecutionPolicy("command-center-baseline", "v1", ["http://host.docker.internal:5081"],
-        ["goto", "expectText", "expectVisible"], 60, true, false, false, 0);
+    var baselinePolicy = new ExecutionPolicy("command-center-baseline", "v2", ["http://host.docker.internal:5081"],
+        ["goto", "expectText", "expectVisible"], 60, true, false, false, 0, "local-command-center");
     services.AddSingleton(new ExecutionPolicyCatalog());
-    services.AddSingleton(new FileExecutionPolicyStore(Path.Combine(runDirectory, "policies", "execution-policies.json")));
+    if (storeKind.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+        services.AddSingleton<IExecutionPolicyStore, PostgresExecutionPolicyStore>();
+    else services.AddSingleton<IExecutionPolicyStore>(new FileExecutionPolicyStore(Path.Combine(runDirectory, "policies", "execution-policies.json")));
     services.AddSingleton<ExecutionPolicyService>(sp => new ExecutionPolicyService(sp.GetRequiredService<ExecutionPolicyCatalog>(),
-        sp.GetRequiredService<FileExecutionPolicyStore>(), [baselinePolicy, ..configuredPolicies]));
+        sp.GetRequiredService<IExecutionPolicyStore>(), [baselinePolicy, ..configuredPolicies], sp.GetRequiredService<TimeProvider>()));
     services.AddSingleton<PlaywrightTestExecutor>();
     services.AddSingleton<IUiInspector, PlaywrightUiInspector>();
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<IReviewedTestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<ExecutionRequestService>();
+    services.AddSingleton<AutomationWorkflowService>();
     services.AddSingleton<JobService>();
     if (runWorker)
     {
         services.AddHostedService<JobWorker>();
+        services.AddHostedService<AutomationWorkflowWorker>();
         services.AddHostedService<ExecutionWorker>();
     }
 }
@@ -608,9 +751,12 @@ public sealed record FailureReviewRequest(string? Classification, string? Reason
 public sealed record RegressionPromotionRequest(string? ReviewedManifestHash);
 public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256);
 public sealed record CreateExecutionRequest(string? Target);
-public sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
+public sealed record CreateAutonomousExecution(string? Target, string? PolicyName, string? IdempotencyKey = null);
+public sealed record ReviewAutomationWorkflow(long Revision, bool Approve, string? Reviewer);
 public sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
-    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false, int CanaryMaxAutoLaunches = 0);
+    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
+    int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
+    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
 public sealed record PrepareExecutionManifest(long Revision);

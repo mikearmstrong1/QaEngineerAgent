@@ -58,6 +58,11 @@ app.MapGet("/bff/jobs/{id}/execution-requests", async (string id, IHttpClientFac
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/execution-requests", null, ct);
 });
+app.MapGet("/bff/jobs/{id}/automation-workflows", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/automation-workflows", null, ct);
+});
 app.MapGet("/bff/execution-policy", async (IHttpClientFactory factory, CancellationToken ct) =>
     await ForwardAsync(factory, HttpMethod.Get, "/execution-policy", null, ct));
 app.MapGet("/bff/execution-policies", async (IHttpClientFactory factory, CancellationToken ct) =>
@@ -68,6 +73,16 @@ app.MapPut("/bff/execution-policies/{name}", async Task<IResult> (string name, H
     if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]{0,99}$")) return Results.BadRequest(new { error = "invalid_policy_name" });
     if (!string.Equals(name, input.Name, StringComparison.Ordinal)) return Results.BadRequest(new { error = "policy_name_mismatch" });
     return await ForwardAsync(factory, HttpMethod.Put, $"/execution-policies/{name}", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/execution-policies/{name}/revisions/{version}/{operation}", async Task<IResult> (string name, string version,
+    string operation, HttpRequest request, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]{0,99}$") || string.IsNullOrWhiteSpace(version) || version.Length > 100)
+        return Results.BadRequest(new { error = "invalid_policy_revision" });
+    if (operation is not ("activate" or "disable" or "retire")) return Results.NotFound();
+    return await ForwardAsync(factory, HttpMethod.Post,
+        $"/execution-policies/{Uri.EscapeDataString(name)}/revisions/{Uri.EscapeDataString(version)}/{operation}", null, ct);
 });
 app.MapPost("/bff/jobs/{id}/execution-requests", async Task<IResult> (string id, HttpRequest request, CreateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
@@ -82,6 +97,20 @@ app.MapPost("/bff/jobs/{id}/autonomous-executions", async Task<IResult> (string 
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/jobs/{id}/autonomous-executions", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/automation-workflows/{id}/review", async Task<IResult> (string id, HttpRequest request,
+    ReviewAutomationWorkflow input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_workflow_id" });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/automation-workflows/{id}/review", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/automation-workflows/{id}/cancel", async Task<IResult> (string id, HttpRequest request,
+    IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_workflow_id" });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/automation-workflows/{id}/cancel", null, ct);
 });
 app.MapPut("/bff/execution-requests/{id}/manifest", async Task<IResult> (string id, HttpRequest request, UpdateExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
@@ -236,9 +265,12 @@ sealed record FailureReview(string? Classification, string? Reason);
 sealed record PromotionReview(string? ReviewedManifestHash);
 sealed record ApplyProposalReview(string? ReviewedPatchSha256);
 sealed record CreateExecution(string? Target);
-sealed record CreateAutonomousExecution(string? Target, string? PolicyName);
+sealed record CreateAutonomousExecution(string? Target, string? PolicyName, string? IdempotencyKey = null);
+sealed record ReviewAutomationWorkflow(long Revision, bool Approve, string? Reviewer);
 sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
-    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false, int CanaryMaxAutoLaunches = 0);
+    int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
+    int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
+    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1);
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);
