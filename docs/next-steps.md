@@ -5,6 +5,7 @@ Last checked: **2026-09-25** against `main` at `394424f`, the current source tre
 ## Product goals
 
 The system should turn a Jira story into traceable, executable browser coverage; run that coverage safely; preserve evidence and regression history; and automate the normal path while making human review an optional policy gate or an escalation path. The web app and terminal must expose the same application contracts. Credentials must remain server-side and out of logs, browser responses, source control, and saved evidence.
+The design should automate the entire process with optional human check points and clear observeability.
 
 ## Goal check
 
