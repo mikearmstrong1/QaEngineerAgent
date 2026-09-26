@@ -65,7 +65,13 @@ public sealed class PlaywrightTestExecutor(ExecutionOptions options, ITestRunSto
                 var classification = root.GetProperty("failureClassification").GetString();
                 if (classification is not ("None" or "NeedsReview" or "TestFailure" or "InfrastructureFailure"))
                     throw new InvalidDataException("Invalid failure classification");
-                run = run with { Status = status, ExecutorVersion = root.GetProperty("executorVersion").GetString(), FailureClassification = classification };
+                using var summary = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(directory, "summary.json"), ct));
+                var testResults = summary.RootElement.GetProperty("tests").EnumerateArray().Select(item => new TestCaseRunResult(
+                    item.GetProperty("id").GetString() ?? "", item.GetProperty("status").GetString() ?? "unknown",
+                    item.GetProperty("classification").GetString() ?? "InfrastructureFailure",
+                    item.TryGetProperty("durationMilliseconds", out var duration) ? duration.GetInt64() : 0)).ToArray();
+                run = run with { Status = status, ExecutorVersion = root.GetProperty("executorVersion").GetString(),
+                    FailureClassification = classification, TestResults = testResults };
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { run = run with { Status = "Cancelled" }; }

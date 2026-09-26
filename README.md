@@ -166,7 +166,9 @@ docker compose --profile cli run --rm oneshot \
   policy-activate --name local-readonly --version v1
 ```
 
-Use `policy-list`, `policy-disable`, or `policy-retire` for the remaining lifecycle operations. A retired revision cannot be reactivated. `autonomous-execute --job JOB_ID --target URL --policy NAME --idempotency-key TRIGGER_ID` creates and advances the same durable workflow used by the Command Center. Inspect or act on a paused workflow with `automation-get`, `automation-review`, and `automation-cancel`.
+Use `policy-list`, `policy-disable`, or `policy-retire` for the remaining lifecycle operations. A retired revision cannot be reactivated. `autonomous-execute --job JOB_ID --target URL --policy NAME --idempotency-key TRIGGER_ID` creates and advances the same durable workflow used by the Command Center. Inspect or act on a paused workflow with `automation-get`, `automation-review`, and `automation-cancel`. Policies default to `High` minimum mapping confidence. Incomplete, ambiguous, or mutating generated coverage pauses for review.
+
+After creating an execution request, `execution-explain --id REQUEST_ID` performs read-only inspection and prints the proposed manifest together with every planned action/expected-result mapping, confidence, reason, and gap. It does not save, approve, or execute the manifest.
 
 ## Run a reviewed browser test
 
@@ -233,6 +235,7 @@ docker compose --profile cli run --rm oneshot \
 ```
 
 Execution status is separate from planning status. A run may be `Passed`, `Failed`, `TimedOut`, `Cancelled`, or `InfrastructureFailed`.
+Each run retains its manifest, result, process log, and any available Playwright summary/report. Every test reported by Playwright records status, classification, and duration; failed browser tests additionally retain screenshots and traces.
 
 For network restrictions, evidence files, and Linux target addressing, read [reviewed Playwright execution](docs/playwright-execution.md).
 

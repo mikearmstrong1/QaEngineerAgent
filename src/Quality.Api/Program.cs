@@ -10,10 +10,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-explain --id <request-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "execution-create" or "execution-list" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "execution-create" or "execution-list" or "execution-explain" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -160,6 +160,13 @@ try
             var parsed = ParseOptions(args.Skip(1).ToArray(), ["--job"]);
             Console.WriteLine(JsonSerializer.Serialize(new { items = await service.ListByJobAsync(parsed["--job"], timeout.Token) }, ContractJson.Options));
             return 0;
+        }
+        else if (mode == "execution-explain")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--id"]);
+            var explained = await service.ExplainManifestAsync(parsed["--id"], app.Services.GetRequiredService<IUiInspector>(), timeout.Token);
+            Console.WriteLine(JsonSerializer.Serialize(explained, ContractJson.Options));
+            return explained.Complete ? 0 : 1;
         }
         else
         {
@@ -373,7 +380,7 @@ try
             var policy = new ExecutionPolicy(input.Name ?? "", input.Version ?? "", input.AllowedOrigins ?? [], input.AllowedActions ?? [],
                 input.MaxTimeoutSeconds, input.NonProduction, input.AutoApprove, input.AutoLaunch, input.CanaryMaxAutoLaunches,
                 input.Environment ?? "default", input.MaxConcurrentAutoLaunches, input.AutoLaunchWindowSeconds,
-                input.MaxAutoLaunchesPerWindow);
+                input.MaxAutoLaunchesPerWindow, input.MinimumMappingConfidence);
             await policies.CreateAsync(policy, false, ct);
             return Results.Ok(new { items = policies.Describe() });
         }
@@ -447,6 +454,12 @@ try
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
         try { return Results.Ok(await executions.PrepareManifestAsync(id, input.Revision, inspector, ct)); }
         catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["manifest"] = [ex.Message] }); }
+    });
+    app.MapPost("/execution-requests/{id}/explain-manifest", async (string id, ExecutionRequestService executions, IUiInspector inspector, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try { return Results.Ok(await executions.ExplainManifestAsync(id, inspector, ct)); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["manifest"] = [ex.Message] }); }
     });
     app.MapPut("/execution-requests/{id}/manifest", async (string id, UpdateExecutionManifest input, ExecutionRequestService executions, CancellationToken ct) =>
@@ -756,7 +769,8 @@ public sealed record ReviewAutomationWorkflow(long Revision, bool Approve, strin
 public sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
     int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
     int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
-    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1);
+    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1,
+    MappingConfidence MinimumMappingConfidence = MappingConfidence.High);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
 public sealed record PrepareExecutionManifest(long Revision);

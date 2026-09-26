@@ -42,6 +42,7 @@ public sealed record AutomationWorkflow(
     int StageAttempts = 0,
     DateTimeOffset? NextAttemptAt = null,
     string? InspectionJson = null,
+    string? PreparationJson = null,
     string? ManifestJson = null,
     string? ManifestHash = null,
     string? ExecutionRequestId = null,

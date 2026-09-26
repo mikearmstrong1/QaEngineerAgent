@@ -43,7 +43,7 @@ before(async () => {
   server = http.createServer((req, res) => {
     if (req.url === '/redirect') { res.writeHead(302, { Location: otherOrigin }); res.end(); return; }
     res.setHeader('Content-Type', 'text/html');
-    res.end('<!doctype html><html><h1>Ready</h1><label>Name<input id="name"></label><button onclick="document.querySelector(\'h1\').textContent=document.querySelector(\'input\').value">Show</button></html>');
+    res.end('<!doctype html><html><h1>Ready</h1><label>Name<input id="name"></label><a id="account" href="/account?token=secret#private">Account</a><button onclick="document.querySelector(\'h1\').textContent=document.querySelector(\'input\').value">Show</button></html>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
@@ -65,6 +65,9 @@ test('real Chromium execution passes and persists a schema-valid run', async () 
   const run = JSON.parse(result.stdout);
   assert.equal(run.status, 'Passed');
   assert.equal(run.failureClassification, 'None');
+  assert.deepEqual(run.testResults.map(result => ({ id: result.testCaseId, status: result.status, classification: result.classification })),
+    [{ id: 'TC-1', status: 'passed', classification: 'None' }]);
+  assert.ok(Number.isInteger(run.testResults[0].durationMilliseconds));
   assert.match(run.executorVersion, /^playwright\//);
   assert.ok(run.artifactKeys.some(key => key.endsWith('/report.json')));
   const read = await cli(['get-run', '--id', run.id]);
@@ -73,12 +76,37 @@ test('real Chromium execution passes and persists a schema-valid run', async () 
   const validate = ajv.compile(JSON.parse(fs.readFileSync(path.join(root, 'schemas/v1/test-run.schema.json'))));
   assert.ok(validate(run), JSON.stringify(validate.errors));
 });
+test('CLI dry-run explains every coverage gap without authorizing execution', async () => {
+  const created = await cli(['execution-create', '--job', base.job, '--target', origin]);
+  assert.equal(created.code, 0, created.stderr);
+  const request = JSON.parse(created.stdout);
+  const explained = await cli(['execution-explain', '--id', request.id]);
+  assert.equal(explained.code, 1, explained.stderr);
+  const result = JSON.parse(explained.stdout);
+  assert.equal(result.complete, false);
+  assert.ok(result.gaps.length > 0);
+  assert.equal(result.tests[0].steps[0].testCaseId, 'TC-1');
+  assert.equal(result.manifest.tests[0].steps.some(step => step.selector === 'body'), false);
+  const saved = await cli(['execution-list', '--job', base.job]);
+  assert.equal(JSON.parse(saved.stdout).items.find(item => item.id === request.id).status, 'Draft');
+});
+test('read-only semantic inspection never persists link query credentials or fragments', async () => {
+  const inspected = await processResult(process.execPath, [path.join(root, 'playwright/execution/inspect.cjs'), origin, origin]);
+  assert.equal(inspected.code, 0, inspected.stderr);
+  const account = JSON.parse(inspected.stdout).controls.find(control => control.selector === '#account');
+  assert.equal(account.href, '/account');
+  assert.equal(account.unique, true);
+  assert.equal(account.role, 'link');
+});
 test('a failing assertion is persisted as Failed with trace and screenshot', async () => {
   const result = await execute(manifest([step('goto', null, '/'), step('expectText', 'h1', 'Wrong')]));
   assert.equal(result.code, 1, result.stderr);
   const run = JSON.parse(result.stdout);
   assert.equal(run.status, 'Failed');
   assert.equal(run.failureClassification, 'NeedsReview');
+  assert.equal(run.testResults[0].testCaseId, 'TC-1');
+  assert.equal(run.testResults[0].status, 'failed');
+  assert.equal(run.testResults[0].classification, 'NeedsReview');
   const classified = await cli(['classify-failure', '--run', run.id, '--classification', 'ApplicationFailure', '--reason', 'Fixture assertion differs from the required page text']);
   assert.equal(classified.code, 0, classified.stderr);
   assert.equal(JSON.parse(classified.stdout).status, 'Failed');

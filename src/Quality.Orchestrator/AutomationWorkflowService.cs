@@ -102,7 +102,8 @@ public sealed class AutomationWorkflowService(
         if (request.Status != ExecutionRequestStatus.Approved)
             throw new ArgumentException("Workflow execution request cannot be reviewed in its current state");
         var approved = Transition(current with { ReviewDecision = "Approved", Reviewer = reviewer,
-            ReviewedAt = now, EscalationReason = null }, AutomationWorkflowStatus.Approved, now, "human_review_approved");
+            ReviewedAt = now, EscalationReason = null, ManifestJson = request.ManifestJson,
+            ManifestHash = request.ManifestHash }, AutomationWorkflowStatus.Approved, now, "human_review_approved");
         return await workflows.SaveReviewAsync(approved, revision, ct);
     }
 
@@ -136,9 +137,9 @@ public sealed class AutomationWorkflowService(
                 var job = await RequiredJobAsync(workflow.JobId, ct);
                 var inspection = JsonSerializer.Deserialize<UiInspection>(workflow.InspectionJson!, ContractJson.Options)
                     ?? throw new InvalidOperationException("Inspection checkpoint is invalid");
-                var manifest = ReviewedManifestBuilder.Build(job.TestPlan!, workflow.Target, inspection);
-                var json = JsonSerializer.Serialize(manifest, ContractJson.Options);
-                return Transition(workflow with { ManifestJson = json,
+                var preparation = ReviewedManifestBuilder.Prepare(job.TestPlan!, workflow.Target, inspection);
+                var json = JsonSerializer.Serialize(preparation.Manifest, ContractJson.Options);
+                return Transition(workflow with { PreparationJson = JsonSerializer.Serialize(preparation, ContractJson.Options), ManifestJson = json,
                     ManifestHash = ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)) },
                     AutomationWorkflowStatus.ManifestPrepared, now, ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)));
             }
@@ -147,8 +148,11 @@ public sealed class AutomationWorkflowService(
                 var policy = Policy(workflow);
                 var manifest = JsonSerializer.Deserialize<ExecutionManifest>(workflow.ManifestJson!, ContractJson.Options)
                     ?? throw new InvalidOperationException("Manifest checkpoint is invalid");
-                policy.ValidateManifest(manifest, requireAutoApproval: false);
-                return Transition(workflow, AutomationWorkflowStatus.PolicyEvaluated, now, policy.Fingerprint());
+                var preparation = await RequiredPreparationAsync(workflow, ct);
+                var reason = AutomationBlockReason(policy, manifest, preparation);
+                return Transition(workflow with { EscalationReason = reason,
+                    PreparationJson = JsonSerializer.Serialize(preparation, ContractJson.Options) }, AutomationWorkflowStatus.PolicyEvaluated,
+                    now, reason ?? policy.Fingerprint());
             }
             case AutomationWorkflowStatus.PolicyEvaluated:
                 return await PrepareRequestAsync(workflow, now, ct);
@@ -185,10 +189,15 @@ public sealed class AutomationWorkflowService(
     {
         var policy = Policy(workflow);
         var request = await executions.CreateAsync(workflow.JobId, workflow.Target, ct, policy, workflow.Id);
-        if (request.Status == ExecutionRequestStatus.Draft)
-            request = await executions.UpdateManifestAsync(request.Id, request.Revision,
-                Encoding.UTF8.GetBytes(workflow.ManifestJson!), ct);
+        var preparation = await RequiredPreparationAsync(workflow, ct);
+        workflow = workflow with { PreparationJson = JsonSerializer.Serialize(preparation, ContractJson.Options) };
+        if (request.Status == ExecutionRequestStatus.Draft && ManifestIsReviewable(preparation.Manifest))
+            request = await executions.UpdateManifestAsync(request.Id, request.Revision, Encoding.UTF8.GetBytes(workflow.ManifestJson!), ct);
+        else if (request.Status == ExecutionRequestStatus.Draft)
+            request = await executions.SavePreparedDraftAsync(request.Id, request.Revision, preparation, ct);
         var updated = workflow with { ExecutionRequestId = request.Id };
+        if (workflow.EscalationReason is not null)
+            return Transition(updated, AutomationWorkflowStatus.AwaitingReview, now, workflow.EscalationReason);
         if (request.Status == ExecutionRequestStatus.AwaitingApproval && !policy.AutoApprove)
             return Transition(updated with { EscalationReason = "policy_requires_review" },
                 AutomationWorkflowStatus.AwaitingReview, now, "policy_requires_review");
@@ -233,6 +242,17 @@ public sealed class AutomationWorkflowService(
         => workflow.ExecutionRequestId is { } id && await executions.GetAsync(id, ct) is { } request
             ? request : throw new InvalidOperationException("Workflow execution request is missing");
 
+    private async Task<ManifestPreparationResult> RequiredPreparationAsync(AutomationWorkflow workflow, CancellationToken ct)
+    {
+        if (workflow.PreparationJson is not null)
+            return JsonSerializer.Deserialize<ManifestPreparationResult>(workflow.PreparationJson, ContractJson.Options)
+                ?? throw new InvalidOperationException("Preparation checkpoint is invalid");
+        var job = await RequiredJobAsync(workflow.JobId, ct);
+        var inspection = JsonSerializer.Deserialize<UiInspection>(workflow.InspectionJson!, ContractJson.Options)
+            ?? throw new InvalidOperationException("Inspection checkpoint is invalid");
+        return ReviewedManifestBuilder.Prepare(job.TestPlan!, workflow.Target, inspection);
+    }
+
     private async Task<QualityJob> RequiredJobAsync(string id, CancellationToken ct)
     {
         var job = await jobs.GetAsync(id, ct);
@@ -263,6 +283,21 @@ public sealed class AutomationWorkflowService(
 
     private static AutomationWorkflow Release(AutomationWorkflow workflow, DateTimeOffset now)
         => workflow with { UpdatedAt = now, StageAttempts = 0, NextAttemptAt = now.AddMilliseconds(250) };
+    private static string? AutomationBlockReason(ExecutionPolicy policy, ExecutionManifest manifest,
+        ManifestPreparationResult preparation)
+    {
+        try { policy.ValidateManifest(manifest, requireAutoApproval: false); }
+        catch (ArgumentException) { return "policy_manifest_rejected"; }
+        if (!preparation.Complete || preparation.Gaps.Length != 0) return "coverage_incomplete";
+        if ((int)preparation.OverallConfidence < (int)policy.MinimumMappingConfidence) return "mapping_confidence_below_policy";
+        if (preparation.HasMutations) return "mutation_governance_required";
+        try { policy.ValidatePreparation(preparation); }
+        catch (ArgumentException) { return "preparation_policy_rejected"; }
+        return null;
+    }
+    private static bool ManifestIsReviewable(ExecutionManifest manifest) => manifest.Tests is { Length: > 0 }
+        && manifest.Tests.All(test => test.Steps is { Length: > 0 }
+            && test.Steps.Any(step => step.Action is "expectText" or "expectVisible" or "expectUrl"));
     private static bool Terminal(ExecutionRequestStatus status) => status is ExecutionRequestStatus.Passed
         or ExecutionRequestStatus.Failed or ExecutionRequestStatus.TimedOut
         or ExecutionRequestStatus.InfrastructureFailed or ExecutionRequestStatus.Cancelled;

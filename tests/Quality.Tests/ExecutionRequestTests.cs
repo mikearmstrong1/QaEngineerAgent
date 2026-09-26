@@ -143,7 +143,7 @@ public sealed class ExecutionRequestTests
     }
 
     [Fact]
-    public async Task PrepareManifestBuildsReadOnlyAssertionsAndStillRequiresApproval()
+    public async Task ExplainManifestReportsIncompleteCoverageWithoutGenericAssertions()
     {
         var root = Path.Combine(Path.GetTempPath(), "quality-execution-prepare-" + Guid.NewGuid().ToString("N"));
         try
@@ -159,16 +159,15 @@ public sealed class ExecutionRequestTests
                 new CapturingExecutor(), new(root, ["http://127.0.0.1:8000"]), TimeProvider.System);
             var request = await service.CreateAsync(job.Id, "http://127.0.0.1:8000/", default);
 
-            request = await service.PrepareManifestAsync(request.Id, request.Revision,
+            var preparation = await service.ExplainManifestAsync(request.Id,
                 new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality Command Center", "h1"), new("input", "input", "Issue key", "#jira-key")])), default);
 
-            Assert.Equal(ExecutionRequestStatus.AwaitingApproval, request.Status);
-            var manifest = JsonSerializer.Deserialize<ExecutionManifest>(request.ManifestJson, ContractJson.Options)!;
-            Assert.Equal(["goto", "expectText", "expectVisible"], manifest.Tests.Single().Steps.Select(step => step.Action));
-            Assert.Equal("Quality Command Center", manifest.Tests.Single().Steps[1].Value);
-            Assert.Equal("#jira-key", manifest.Tests.Single().Steps[2].Selector);
-            Assert.DoesNotContain(manifest.Tests.Single().Steps, step => step.Action is "click" or "fill");
-            await Assert.ThrowsAsync<ArgumentException>(() => service.LaunchAsync(request.Id, request.Revision, default));
+            Assert.False(preparation.Complete);
+            Assert.Equal(MappingConfidence.None, preparation.OverallConfidence);
+            Assert.Contains(preparation.Gaps, gap => gap.Contains("assertion:unmatched"));
+            Assert.DoesNotContain(preparation.Manifest.Tests.Single().Steps,
+                step => step.Selector == "body" || step.Action == "expectVisible");
+            Assert.Equal(ExecutionRequestStatus.Draft, (await service.GetAsync(request.Id, default))!.Status);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
@@ -186,11 +185,16 @@ public sealed class ExecutionRequestTests
             new("input", "input", "Issue key", "#jira-key", ["fill"]),
             new("button", "button", "Generate plan", "#generate-plan", ["click"]) ]);
 
-        var manifest = ReviewedManifestBuilder.Build(plan, "http://127.0.0.1:8000/", inspection);
+        var preparation = ReviewedManifestBuilder.Prepare(plan, "http://127.0.0.1:8000/", inspection);
+        var manifest = preparation.Manifest;
 
-        Assert.Equal(["goto", "expectText", "fill", "click", "expectVisible"], manifest.Tests.Single().Steps.Select(step => step.Action));
+        Assert.Equal(["fill", "expectVisible", "click"], manifest.Tests.Single().Steps.Select(step => step.Action));
         Assert.Contains(manifest.Tests.Single().Steps, step => step.Action == "fill" && step.Selector == "#jira-key" && step.Value == "KAN-5");
         Assert.Contains(manifest.Tests.Single().Steps, step => step.Action == "click" && step.Selector == "#generate-plan");
+        Assert.False(preparation.Complete);
+        Assert.True(preparation.HasMutations);
+        Assert.Equal(MappingStatus.Unmatched, preparation.Tests.Single().Steps[2].ActionStatus);
+        Assert.DoesNotContain(manifest.Tests.Single().Steps, step => step.Selector == "body");
     }
 
     [Fact]
@@ -214,7 +218,7 @@ public sealed class ExecutionRequestTests
                 policies: new ExecutionPolicyCatalog([policy]));
 
             var request = await service.CreateAutonomousAsync(job.Id, "http://127.0.0.1:8000/", policy.Name,
-                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
+                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Visible", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
 
             Assert.Equal(ExecutionRequestStatus.Queued, request.Status);
             Assert.Equal(policy.Name, request.AutomationPolicy);
@@ -226,7 +230,7 @@ public sealed class ExecutionRequestTests
             Assert.Equal(policy.ReviewerIdentity(), request.Approval!.Reviewer);
 
             var held = await service.CreateAutonomousAsync(job.Id, "http://127.0.0.1:8000/", policy.Name,
-                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Quality", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
+                new StaticInspector(new("http://127.0.0.1:8000/", [new("h1", "h1", "Visible", "h1"), new("input", "input", "Issue", "#jira-key")])), default);
             Assert.Equal(ExecutionRequestStatus.Approved, held.Status);
             Assert.Null(held.AutoLaunchReservedAt);
         }
@@ -245,6 +249,60 @@ public sealed class ExecutionRequestTests
 
         Assert.Throws<ArgumentException>(() => production.ValidateManifest(manifest));
         Assert.Throws<ArgumentException>(() => restrictive.ValidateManifest(manifest));
+    }
+
+    [Fact]
+    public void PreparationIsDeterministicAndFailsClosedForAmbiguousControls()
+    {
+        var plan = new TestPlan("plan-ambiguous", "requirement-1", "Plan",
+            [new("TC-1", "requirement-1", "Save", "HappyPath", "P1", ["AC-1"],
+                [new("Click Save", "Save")])], [], [], "plan/v2", false);
+        var inspection = new UiInspection("http://127.0.0.1:8000/", [
+            new("button", "button", "Save", "button", ["click"], Unique: false),
+            new("button", "button", "Save", "button", ["click"], Unique: false) ]);
+
+        var first = ReviewedManifestBuilder.Prepare(plan, inspection.Target, inspection);
+        var second = ReviewedManifestBuilder.Prepare(plan, inspection.Target, inspection);
+
+        Assert.Equal(JsonSerializer.Serialize(first, ContractJson.Options), JsonSerializer.Serialize(second, ContractJson.Options));
+        Assert.False(first.Complete);
+        Assert.Equal(MappingStatus.Ambiguous, first.Tests.Single().Steps.Single().ActionStatus);
+        Assert.Equal(MappingStatus.Ambiguous, first.Tests.Single().Steps.Single().AssertionStatus);
+        Assert.Contains(first.Gaps, gap => gap.EndsWith("action:ambiguous"));
+        Assert.DoesNotContain(first.Manifest.Tests.Single().Steps, step => step.Selector == "body");
+    }
+
+    [Fact]
+    public void AutonomousPreparationGateBlocksMutationsUntilDataAndCleanupAreGoverned()
+    {
+        var plan = new TestPlan("plan-mutation", "requirement-1", "Plan",
+            [new("TC-1", "requirement-1", "Submit", "HappyPath", "P1", ["AC-1"],
+                [new("Click Submit", "Submit")])], [], [], "plan/v2", false);
+        var inspection = new UiInspection("http://127.0.0.1:8000/", [
+            new("button", "button", "Submit", "#submit", ["click"], Unique: true) ]);
+        var preparation = ReviewedManifestBuilder.Prepare(plan, inspection.Target, inspection);
+        var policy = new ExecutionPolicy("mutation-test", "v1", ["http://127.0.0.1:8000"],
+            ["click", "expectText"], NonProduction: true, AutoApprove: true);
+
+        Assert.True(preparation.Complete);
+        Assert.True(preparation.HasMutations);
+        Assert.Throws<ArgumentException>(() => policy.ValidatePreparation(preparation));
+    }
+
+    [Fact]
+    public void DestructiveWordingIsADeclaredGapEvenWhenAControlMatches()
+    {
+        var plan = new TestPlan("plan-delete", "requirement-1", "Plan",
+            [new("TC-1", "requirement-1", "Delete", "Negative", "P1", ["AC-1"],
+                [new("Click Delete account", "Delete account")])], [], [], "plan/v2", false);
+        var inspection = new UiInspection("http://127.0.0.1:8000/", [
+            new("button", "button", "Delete account", "#delete", ["click"], Unique: true) ]);
+
+        var preparation = ReviewedManifestBuilder.Prepare(plan, inspection.Target, inspection);
+
+        Assert.False(preparation.Complete);
+        Assert.Contains("destructive_action_requires_explicit_governance", preparation.Tests.Single().Steps.Single().Reasons);
+        Assert.DoesNotContain(preparation.Manifest.Tests.Single().Steps, step => step.Action == "click");
     }
 
     private static TestPlan Plan() => new("plan-1", "requirement-1", "Plan",

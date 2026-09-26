@@ -75,18 +75,30 @@ public sealed class ExecutionRequestService(
             throw new ArgumentException("Only an unapproved draft can be prepared");
         var job = await CompletedJobAsync(current.JobId, ct);
         var inspection = await inspector.InspectAsync(new Uri(current.Target, UriKind.Absolute), ct);
-        var manifest = ReviewedManifestBuilder.Build(job.TestPlan!, current.Target, inspection);
-        return await UpdateManifestAsync(id, revision, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, ContractJson.Options)), ct);
+        var preparation = ReviewedManifestBuilder.Prepare(job.TestPlan!, current.Target, inspection);
+        return await UpdateManifestAsync(id, revision, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(preparation.Manifest, ContractJson.Options)), ct);
+    }
+
+    public async Task<ManifestPreparationResult> ExplainManifestAsync(string id, IUiInspector inspector, CancellationToken ct)
+    {
+        var current = await RequiredAsync(id, ct);
+        if (current.Status is not ExecutionRequestStatus.Draft and not ExecutionRequestStatus.AwaitingApproval)
+            throw new ArgumentException("Only an unapproved draft can be explained");
+        var job = await CompletedJobAsync(current.JobId, ct);
+        var inspection = await inspector.InspectAsync(new Uri(current.Target, UriKind.Absolute), ct);
+        return ReviewedManifestBuilder.Prepare(job.TestPlan!, current.Target, inspection);
     }
 
     public async Task<ExecutionRequest> CreateAutonomousAsync(string jobId, string target, string policyName, IUiInspector inspector, CancellationToken ct)
     {
         var policy = (policies ?? new ExecutionPolicyCatalog()).Required(policyName);
         var request = await CreateAsync(jobId, target, ct, policy);
-        request = await PrepareManifestAsync(request.Id, request.Revision, inspector, ct);
-        var manifest = JsonSerializer.Deserialize<ExecutionManifest>(request.ManifestJson, StrictJson)
-            ?? throw new InvalidOperationException("Prepared manifest is missing");
+        var preparation = await ExplainManifestAsync(request.Id, inspector, ct);
+        var manifest = preparation.Manifest;
         policy.ValidateManifest(manifest);
+        policy.ValidatePreparation(preparation);
+        request = await UpdateManifestAsync(request.Id, request.Revision,
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, ContractJson.Options)), ct);
         request = await ApproveAsync(request.Id, request.Revision, request.ManifestHash, policy.ReviewerIdentity(), ct);
         if (!policy.AutoLaunch || policy.CanaryMaxAutoLaunches < 1 || request.AutomationPolicyHash is null)
             return request;
@@ -128,6 +140,26 @@ public sealed class ExecutionRequestService(
             Error = null
         };
         return await requests.SaveAsync(updated, revision, ct);
+    }
+
+    internal async Task<ExecutionRequest> SavePreparedDraftAsync(string id, long revision,
+        ManifestPreparationResult preparation, CancellationToken ct)
+    {
+        var current = await RequiredAsync(id, ct);
+        if (current.Revision != revision) throw new ExecutionRequestConflictException();
+        if (current.Status != ExecutionRequestStatus.Draft) throw new ArgumentException("Only a generated draft can be saved");
+        var job = await CompletedJobAsync(current.JobId, ct);
+        var manifest = preparation.Manifest;
+        if (manifest.TestPlanId != job.TestPlan!.Id || manifest.PlanHash != ExecutionManifest.HashPlan(job.TestPlan)
+            || manifest.Target != current.Target || manifest.Tests is null || manifest.Tests.Length > 50
+            || manifest.Tests.Select(test => test.TestCaseId).Distinct(StringComparer.Ordinal).Count() != manifest.Tests.Length
+            || manifest.Tests.Any(test => !job.TestPlan.TestCases.Any(planned => planned.Id == test.TestCaseId)
+                || test.Steps is null || test.Steps.Length > 100
+                || test.Steps.Any(step => step.Action is not ("goto" or "click" or "fill" or "expectText" or "expectVisible" or "expectUrl"))))
+            throw new ArgumentException("Prepared draft does not match the persisted plan");
+        var json = JsonSerializer.Serialize(manifest, ContractJson.Options);
+        return await requests.SaveAsync(current with { ManifestJson = json,
+            ManifestHash = ExecutionManifest.Hash(Encoding.UTF8.GetBytes(json)), UpdatedAt = clock.GetUtcNow(), Error = null }, revision, ct);
     }
 
     public async Task<ExecutionRequest> ApproveAsync(string id, long revision, string reviewedHash, string reviewer, CancellationToken ct)

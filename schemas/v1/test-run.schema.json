@@ -132,6 +132,23 @@
         "string",
         "null"
       ]
+    },
+    "testResults": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "testCaseId": { "type": "string" },
+          "status": { "type": "string" },
+          "classification": { "type": "string" },
+          "durationMilliseconds": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["testCaseId", "status", "classification", "durationMilliseconds"]
+      }
     }
   },
   "required": [

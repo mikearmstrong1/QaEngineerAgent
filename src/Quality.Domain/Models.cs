@@ -52,11 +52,13 @@ public sealed record TestPlan(string Id, string RequirementId, string Summary, T
     PlanningMetadata? Planning = null);
 public sealed record StoredArtifact(string LocalKey, string ObjectKey, string Bucket, string ContentType, long Length, string Sha256,
     string? Provider = null);
+public sealed record TestCaseRunResult(string TestCaseId, string Status, string Classification, long DurationMilliseconds);
 public sealed record TestRun(string Id, string TestPlanId, string Status, DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt, string[] ArtifactKeys, string? ExecutorVersion, string SchemaVersion = "1.0",
     string? ManifestHash = null, string[]? TestCaseIds = null,
     StoredArtifact[]? StoredArtifacts = null, string? ArtifactUploadStatus = null,
-    string? FailureClassification = null, string? FailureReviewReason = null);
+    string? FailureClassification = null, string? FailureReviewReason = null,
+    TestCaseRunResult[]? TestResults = null);
 public sealed record FailureAnalysis(string Id, string TestRunId, string Classification,
     string Summary, string[] EvidenceArtifactKeys, double Confidence, bool RequiresReview, string SchemaVersion = "1.0",
     StoredArtifact[]? EvidenceArtifacts = null);

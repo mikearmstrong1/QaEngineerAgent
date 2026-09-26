@@ -7,7 +7,7 @@ module.exports = class ExecutionReporter {
   onTestEnd(test, result) {
     const annotated = test.annotations.find(item => item.type === 'quality-failure')?.description;
     const classification = result.status === 'passed' ? 'None' : ['NeedsReview', 'TestFailure', 'InfrastructureFailure'].includes(annotated) ? annotated : 'InfrastructureFailure';
-    this.tests.push({ id: test.title, status: result.status, classification });
+    this.tests.push({ id: test.title, status: result.status, classification, durationMilliseconds: Math.max(0, Math.round(result.duration || 0)) });
   }
   onEnd(result) {
     fs.writeFileSync(path.join(__dirname, 'summary.json'), JSON.stringify({ status: result.status, tests: this.tests, errors: this.errors }));

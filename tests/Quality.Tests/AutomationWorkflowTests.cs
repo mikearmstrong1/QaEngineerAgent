@@ -105,6 +105,39 @@ public sealed class AutomationWorkflowTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task IncompleteCoveragePersistsExplanationAndPausesForHumanReview()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-workflow-coverage-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var fixture = await Fixture.CreateAsync(root, autoApprove: true, autoLaunch: true,
+                inspector: new StaticInspector(new("http://127.0.0.1:8000/", [])));
+            var workflow = await fixture.Workflows.CreateAsync(fixture.Job.Id, fixture.Target, fixture.Policy.Name,
+                "coverage-gap", default);
+            for (var index = 0; index < 5; index++) await fixture.Workflows.ProcessNextAsync(default);
+
+            workflow = (await fixture.Workflows.GetAsync(workflow.Id, default))!;
+            Assert.Equal(AutomationWorkflowStatus.AwaitingReview, workflow.Status);
+            Assert.Equal("coverage_incomplete", workflow.EscalationReason);
+            var preparation = JsonSerializer.Deserialize<ManifestPreparationResult>(workflow.PreparationJson!, ContractJson.Options)!;
+            Assert.False(preparation.Complete);
+            Assert.NotEmpty(preparation.Gaps);
+            var request = await fixture.Executions.GetAsync(workflow.Id, default);
+            Assert.NotNull(request);
+            Assert.Equal(ExecutionRequestStatus.Draft, request!.Status);
+            var draft = JsonSerializer.Deserialize<ExecutionManifest>(request.ManifestJson, ContractJson.Options)!;
+            Assert.Contains(draft.Tests.Single().Steps, step => step.Action == "goto");
+            Assert.DoesNotContain(draft.Tests.Single().Steps, step => step.Selector == "body");
+
+            fixture = await Fixture.CreateAsync(root, autoApprove: true, autoLaunch: true, existingJob: fixture.Job);
+            var recovered = await fixture.Workflows.GetAsync(workflow.Id, default);
+            Assert.Equal(workflow.PreparationJson, recovered!.PreparationJson);
+            Assert.Equal(AutomationWorkflowStatus.AwaitingReview, recovered.Status);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [PostgresFact]
     public async Task PostgreSqlTriggerAndClaimAreAtomic()
     {

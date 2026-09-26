@@ -82,6 +82,32 @@ public sealed class ExecutionPolicyTests
     }
 
     [Fact]
+    public void DefaultCoverageThresholdPreservesLegacyPolicyFingerprint()
+    {
+        var policy = Policy("v1", autoLaunch: false);
+        var legacy = JsonSerializer.Serialize(new
+        {
+            policy.Name,
+            policy.Version,
+            AllowedOrigins = policy.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order(StringComparer.Ordinal).ToArray(),
+            AllowedActions = policy.AllowedActions.Order(StringComparer.Ordinal).ToArray(),
+            policy.MaxTimeoutSeconds,
+            policy.NonProduction,
+            policy.AutoApprove,
+            policy.AutoLaunch,
+            policy.CanaryMaxAutoLaunches,
+            policy.Environment,
+            policy.MaxConcurrentAutoLaunches,
+            policy.AutoLaunchWindowSeconds,
+            policy.MaxAutoLaunchesPerWindow
+        }, ContractJson.Options);
+
+        Assert.Equal(legacy, policy.CanonicalJson());
+        Assert.DoesNotContain("minimumMappingConfidence", policy.CanonicalJson());
+        Assert.Contains("minimumMappingConfidence", (policy with { MinimumMappingConfidence = MappingConfidence.Medium }).CanonicalJson());
+    }
+
+    [Fact]
     public async Task CliCreatesActivatesShowsDisablesAndListsTheSameRevision()
     {
         var root = Path.Combine(Path.GetTempPath(), "quality-policy-cli-" + Guid.NewGuid().ToString("N"));

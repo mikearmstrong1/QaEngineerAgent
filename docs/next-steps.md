@@ -1,19 +1,19 @@
 # Project build plan
 
-Last checked: **2026-09-25** against `main` at `394424f`, the current source tree, local .NET/Node/Playwright verification, and the documented deployment evidence.
+Last checked: **2026-09-26** against `main` after `0e37e6d`, the current source tree, local .NET/Node/Playwright verification, PostgreSQL, MinIO, and the documented deployment evidence.
 
 ## Product goals
 
 The system should turn a Jira story into traceable, executable browser coverage; run that coverage safely; preserve evidence and regression history; and automate the normal path while making human review an optional policy gate or an escalation path. The web app and terminal must expose the same application contracts. Credentials must remain server-side and out of logs, browser responses, source control, and saved evidence.
-The design should automate the entire process with optional human check points and clear observeability.
+The design should automate the entire process with optional human checkpoints and clear observability.
 
 ## Goal check
 
 | Product goal | Current state | Remaining definition of done |
 | --- | --- | --- |
 | Consume Jira stories and build test cases | Implemented | Keep live-provider contract tests and surface source-revision drift before execution. |
-| Create Playwright tests from test cases | Partially implemented | Deterministic inspection now maps some named `click`/`fill` steps, but each generated test still needs an explicit coverage/confidence result instead of falling back to a generic page assertion. |
-| Execute tests and capture results | Implemented for reviewed and policy-approved requests | Make the complete inspect-to-evidence sequence durable, resumable, idempotent, and available from both API/web and CLI. |
+| Create Playwright tests from test cases | Coverage-aware read-only preparation implemented | Expand semantic mappings and add governed test identity/data/preconditions/cleanup before mutations can run autonomously. |
+| Execute tests and capture results | Implemented for reviewed and policy-approved requests | Per-test status, classification, duration, reports, logs, and failure traces/screenshots are persisted with each run. Make evidence publication resumable. |
 | Automate safely with optional human review | Durable policy-bound workflow implemented | Add richer governance, per-step confidence, declared test data/cleanup, bounded reruns, and automated promotion proposals. |
 | Persist a regression suite | Partially implemented | Replace patch-only promotion with a first-class immutable suite/version catalog and automated validation/PR creation. Keep merge approval external and explicit. |
 | Demonstrate results traceable to Jira | Foundation implemented | Add a story-level acceptance criterion → test → manifest → run → evidence view and export. |
@@ -34,7 +34,7 @@ The design should automate the entire process with optional human check points a
 2. **Policy revisioning and launch budgets are implemented; richer governance remains.** Policy content is immutable by name/version, PostgreSQL and file stores enforce lifecycle state with one active revision per name, legacy file policies migrate, and requests retain the canonical policy snapshot/fingerprint and named environment. Lifetime, rolling-window, and concurrency budgets are reserved atomically before queueing. Test-identity/cleanup declarations, artifact requirements, and role-separated activation are still pending.
 3. **Autonomous execution is now a durable workflow.** Trigger, planning validation, inspection, manifest preparation, policy evaluation, review, queueing, execution, evidence, and classification have persisted checkpoints, stage keys, bounded retries, fenced leases, cancellation, and resume behavior. Trigger idempotency converges duplicate deliveries and deterministic request identity prevents duplicate browser runs.
 4. **Launch authorization and recovery are bounded.** Fingerprint-scoped lifetime, rolling-window, and concurrency limits reserve atomically. Policy gates, exhausted budgets, and fail-closed reservations pause the same workflow for review. Separately budgeted reruns remain future work.
-5. **Generated coverage can look stronger than it is.** The builder uses simple text matching and may finish a test with a heading, rotating control, or `body` visibility assertion. It does not persist confidence, unmatched planned steps, missing assertions, required test data, or cleanup obligations.
+5. **Generated coverage now fails closed and explains itself.** Manifest preparation persists every planned action and expected-result mapping, confidence, reason, structured gap, and mutation flag. Rotating assertions and the generic `body` fallback are removed. Incomplete, ambiguous, low-confidence, or mutating preparations pause for review; declared test identity/data/preconditions/cleanup remain pending.
 6. **Terminal parity covers policy and workflow control.** CLI commands create/list/show/activate/disable/retire revisions and create/get/review/cancel automation workflows through the same services as the API and Command Center. Future governance fields must continue to ship across all three surfaces.
 7. **The feedback loop remains human-heavy.** Failure classification, retry decisions, regression membership, source-control proposal validation, and story-level reporting are separate/manual operations rather than policy-driven stages.
 8. **Operational scope remains local/private.** Bearer authentication is appropriate for the current deployment, but rate limiting, role separation, tenant isolation, and stronger execution sandboxing are still required before broader or multi-user exposure.
@@ -43,7 +43,7 @@ The design should automate the entire process with optional human check points a
 
 ### 1. Harden policy governance and restore CLI parity — in progress
 
-Immutable server-side `ExecutionPolicyRevision` storage, canonical request snapshots, named environments, `Draft`/`Active`/`Disabled`/`Retired` lifecycle, one-active-revision enforcement, legacy-file migration, atomic lifetime/rolling-window/concurrency launch reservations, and CLI/API/web parity are implemented. Complete this milestone with artifact/retention requirements; test-identity references; cleanup requirements; confidence thresholds; escalation behavior; and role-separated activation. Store secrets only in the existing server-side configuration/provider boundary.
+Immutable server-side `ExecutionPolicyRevision` storage, canonical request snapshots, named environments, `Draft`/`Active`/`Disabled`/`Retired` lifecycle, one-active-revision enforcement, legacy-file migration, atomic lifetime/rolling-window/concurrency launch reservations, confidence thresholds, and CLI/API/web parity are implemented. Complete this milestone with artifact/retention requirements; test-identity references; cleanup requirements; richer escalation behavior; and role-separated activation. Store secrets only in the existing server-side configuration/provider boundary.
 
 **Exit gate:** PostgreSQL concurrency tests prove atomic activation and budget reservation; an in-flight request remains bound to its saved policy revision after later edits; disable prevents new authorization without corrupting history; API, web, and CLI contract tests produce equivalent records; no policy response or evidence contains secret material.
 
@@ -53,9 +53,9 @@ Immutable server-side `ExecutionPolicyRevision` storage, canonical request snaps
 
 **Exit gate:** restart/reconciliation tests prove one deterministic execution request and browser run; concurrent duplicate PostgreSQL triggers and claims converge; cancellation fences a running executor; bounded stage failures stop closed; uncertain or policy-gated work stops at `AwaitingReview`; every terminal workflow retains its checkpoints. Provider planning remains independently protected by the existing job operation ledger, uploads remain content-addressed/idempotent, and promotion remains an explicit later workflow.
 
-### 3. Produce test-case-aware manifests with evidence of coverage
+### 3. Produce test-case-aware manifests with evidence of coverage — fail-closed foundation implemented
 
-Expand the read-only UI inventory to stable semantic controls (role, accessible name, test ID, form relationship, link destination, and page state). Map every planned step and expected result to a manifest step or a structured gap. Persist per-step confidence and reasons. Require meaningful assertions tied to the planned expected result; never treat generic `body` visibility as autonomous coverage. Add a dry-run/explain endpoint and CLI output so an operator can review mappings without authorizing execution. Permit mutations only when the active policy declares the action, test identity/data, preconditions, and deterministic cleanup.
+The read-only inventory now records role, accessible name, test ID, form relationship, link destination, uniqueness, disabled/read-only state, and capabilities. Every planned step and expected result receives a persisted mapping or structured gap with confidence and reasons. Generic assertions are forbidden; API, CLI, and Command Center expose read-only explanations. Policies set a minimum confidence, and incomplete/ambiguous/low-confidence coverage escalates. Mutation detection also escalates until the active policy can declare test identity/data, preconditions, and deterministic cleanup. Continue by expanding deterministic assertion/navigation mappings and adding those mutation-governance declarations.
 
 **Exit gate:** golden fixtures cover ambiguous labels, duplicate controls, missing selectors, navigation, and destructive wording; low-confidence or incomplete mappings escalate; the autonomous path cannot approve a test with unmatched required steps, generic-only assertions, undeclared data, or uncertain cleanup; generated manifests remain deterministic for the same plan, policy, and inspection.
 
@@ -97,9 +97,9 @@ Human review is therefore an explicit policy checkpoint and a safe fallback, not
 
 ## Verification checkpoint
 
-- `dotnet test -c Release --no-build`: **204 passed, 1 skipped** against an isolated PostgreSQL schema and MinIO resources. Only the credential-dependent Azure integration test was skipped.
+- `dotnet test -c Release`: **209 passed, 1 skipped** against an isolated PostgreSQL database and MinIO resources. Only the credential-dependent Azure integration test was skipped.
 - `npm run build`: **passed**.
-- `QUALITY_SMOKE_PORT=5090 npm test`: **5 passed**.
-- `npm run test:execution`: **10 passed**.
+- `QUALITY_SMOKE_PORT=5090 npm test`: **6 passed**.
+- `npm run test:execution`: **12 passed**.
 
 Use local Qwen for bounded implementation drafts, test proposals, and reviews where practical. Review its output and execute verification through the supervising agent; Qwen does not have independent shell access.

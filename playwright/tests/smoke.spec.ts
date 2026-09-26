@@ -5,6 +5,7 @@ import Ajv from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import fs from 'node:fs';
 import path from 'node:path';
+const serviceOrigin = process.env.QUALITY_BASE_URL ?? `http://127.0.0.1:${process.env.QUALITY_SMOKE_PORT ?? '5080'}`;
 
 test('browser renders the local service and follows the health link', async ({ page }) => {
   const status = new StatusPage(page);
@@ -73,4 +74,21 @@ test('completed plans reject cancellation and retain their result', async ({ req
   expect(await quality.get(job.id)).toEqual(before);
   expect((await request.post('/jobs/not-an-id/cancel')).status()).toBe(400);
   expect((await request.post('/jobs/00000000000000000000000000000000/cancel')).status()).toBe(404);
+});
+
+test('manifest explanation is read-only and reports traceable coverage gaps', async ({ request, quality }) => {
+  const job = await quality.submit(smokeRequirement);
+  await expect.poll(async () => (await quality.get(job.id)).status).toBe('Completed');
+  const created = await request.post(`/jobs/${job.id}/execution-requests`, { data: { target: serviceOrigin } });
+  expect(created.status()).toBe(201);
+  const execution = await created.json();
+  const explained = await request.post(`/execution-requests/${execution.id}/explain-manifest`);
+  const result = await explained.json();
+  expect(explained.status(), JSON.stringify(result)).toBe(200);
+  expect(result.complete).toBe(false);
+  expect(result.gaps.length).toBeGreaterThan(0);
+  expect(result.tests[0].steps[0].testCaseId).toBe('TC-1');
+  expect(result.manifest.tests[0].steps.some((step: { selector?: string }) => step.selector === 'body')).toBe(false);
+  const saved = await request.get(`/execution-requests/${execution.id}`);
+  expect((await saved.json()).status).toBe('Draft');
 });

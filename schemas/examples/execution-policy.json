@@ -17,5 +17,6 @@
   "environment": "local",
   "maxConcurrentAutoLaunches": 1,
   "autoLaunchWindowSeconds": 3600,
-  "maxAutoLaunchesPerWindow": 1
+  "maxAutoLaunchesPerWindow": 1,
+  "minimumMappingConfidence": "High"
 }

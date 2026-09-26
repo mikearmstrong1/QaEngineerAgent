@@ -130,6 +130,12 @@ app.MapPost("/bff/execution-requests/{id}/prepare-manifest", async Task<IResult>
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
     return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/prepare-manifest", JsonContent.Create(input), ct);
 });
+app.MapPost("/bff/execution-requests/{id}/explain-manifest", async Task<IResult> (string id, HttpRequest request, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/explain-manifest", null, ct);
+});
 app.MapPost("/bff/execution-requests/{id}/approve", async Task<IResult> (string id, HttpRequest request, ApproveExecution input, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -270,7 +276,8 @@ sealed record ReviewAutomationWorkflow(long Revision, bool Approve, string? Revi
 sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
     int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
     int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
-    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1);
+    int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1,
+    string? MinimumMappingConfidence = "High");
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);

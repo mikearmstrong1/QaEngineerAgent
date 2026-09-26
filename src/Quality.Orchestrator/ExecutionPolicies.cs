@@ -22,7 +22,8 @@ public sealed record ExecutionPolicy(
     string Environment = "default",
     int MaxConcurrentAutoLaunches = 1,
     int AutoLaunchWindowSeconds = 3600,
-    int MaxAutoLaunchesPerWindow = 1)
+    int MaxAutoLaunchesPerWindow = 1,
+    MappingConfidence MinimumMappingConfidence = MappingConfidence.High)
 {
     public void ValidateManifest(ExecutionManifest manifest, bool requireAutoApproval = true)
     {
@@ -40,24 +41,41 @@ public sealed record ExecutionPolicy(
             throw new ArgumentException("Manifest contains an action not allowed by the autonomous policy");
     }
 
+    public void ValidatePreparation(ManifestPreparationResult preparation)
+    {
+        if (!preparation.Complete || preparation.Gaps.Length != 0)
+            throw new ArgumentException("Prepared manifest has unmatched or ambiguous planned coverage");
+        if ((int)preparation.OverallConfidence < (int)MinimumMappingConfidence)
+            throw new ArgumentException("Prepared manifest does not meet the policy confidence threshold");
+        if (preparation.HasMutations)
+            throw new ArgumentException("Autonomous mutation requires declared test identity, data, preconditions, and cleanup");
+    }
+
     public string ReviewerIdentity() => $"autonomous-policy:{Name}@{Version}";
 
-    public string CanonicalJson() => JsonSerializer.Serialize(new
+    public string CanonicalJson()
     {
-        Name,
-        Version,
-        AllowedOrigins = AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order(StringComparer.Ordinal).ToArray(),
-        AllowedActions = AllowedActions.Order(StringComparer.Ordinal).ToArray(),
-        MaxTimeoutSeconds,
-        NonProduction,
-        AutoApprove,
-        AutoLaunch,
-        CanaryMaxAutoLaunches,
-        Environment,
-        MaxConcurrentAutoLaunches,
-        AutoLaunchWindowSeconds,
-        MaxAutoLaunchesPerWindow
-    }, ContractJson.Options);
+        // Omitting the new default preserves fingerprints for policy revisions created before coverage gating existed.
+        var value = new Dictionary<string, object?>
+        {
+            ["name"] = Name,
+            ["version"] = Version,
+            ["allowedOrigins"] = AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order(StringComparer.Ordinal).ToArray(),
+            ["allowedActions"] = AllowedActions.Order(StringComparer.Ordinal).ToArray(),
+            ["maxTimeoutSeconds"] = MaxTimeoutSeconds,
+            ["nonProduction"] = NonProduction,
+            ["autoApprove"] = AutoApprove,
+            ["autoLaunch"] = AutoLaunch,
+            ["canaryMaxAutoLaunches"] = CanaryMaxAutoLaunches,
+            ["environment"] = Environment,
+            ["maxConcurrentAutoLaunches"] = MaxConcurrentAutoLaunches,
+            ["autoLaunchWindowSeconds"] = AutoLaunchWindowSeconds,
+            ["maxAutoLaunchesPerWindow"] = MaxAutoLaunchesPerWindow
+        };
+        if (MinimumMappingConfidence != MappingConfidence.High)
+            value["minimumMappingConfidence"] = MinimumMappingConfidence;
+        return JsonSerializer.Serialize(value, ContractJson.Options);
+    }
 
     public string Fingerprint()
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson()))).ToLowerInvariant();
@@ -124,6 +142,8 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
         if (policy.MaxConcurrentAutoLaunches is < 1 or > 100) throw new ArgumentException("Concurrent launch budget must be between 1 and 100");
         if (policy.AutoLaunchWindowSeconds is < 60 or > 86400) throw new ArgumentException("Launch budget window must be between 60 and 86400 seconds");
         if (policy.MaxAutoLaunchesPerWindow is < 1 or > 1000) throw new ArgumentException("Window launch budget must be between 1 and 1000");
+        if (!Enum.IsDefined(policy.MinimumMappingConfidence) || policy.MinimumMappingConfidence == MappingConfidence.None)
+            throw new ArgumentException("Policy minimum mapping confidence must be Low, Medium, or High");
         if (!policy.NonProduction && (policy.AutoApprove || policy.AutoLaunch))
             throw new ArgumentException("Only explicitly non-production policies may auto-approve or auto-launch");
         if (policy.AutoLaunch && !policy.AutoApprove)
@@ -154,6 +174,7 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
             revision.Policy.MaxConcurrentAutoLaunches,
             revision.Policy.AutoLaunchWindowSeconds,
             revision.Policy.MaxAutoLaunchesPerWindow,
+            revision.Policy.MinimumMappingConfidence,
             revision.Policy.MaxTimeoutSeconds,
             AllowedOrigins = revision.Policy.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order().ToArray(),
             AllowedActions = revision.Policy.AllowedActions.Order().ToArray(),

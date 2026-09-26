@@ -28,11 +28,26 @@ const originFor = value => new URL(value).origin;
         if (!node.disabled && !node.readOnly && (tag === 'textarea' || (tag === 'input' && !['button','submit','checkbox','radio','hidden','file'].includes(type)))) capabilities.push('fill');
         return capabilities;
       };
-      return nodes.filter(node => { const style = getComputedStyle(node); return style.display !== 'none' && style.visibility !== 'hidden'; })
-        .slice(0, 100).map(node => ({
+      const safeHrefFor = node => {
+        if (node.tagName.toLowerCase() !== 'a' || !node.href) return null;
+        const url = new URL(node.href, document.baseURI);
+        url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+        return url.origin === location.origin ? `${url.pathname}` : `${url.origin}${url.pathname}`;
+      };
+      const visible = nodes.filter(node => { const style = getComputedStyle(node); return style.display !== 'none' && style.visibility !== 'hidden'; }).slice(0, 100);
+      return visible.map(node => {
+        const selector = selectorFor(node), id = node.getAttribute('id');
+        const explicitLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : null;
+        const wrappingLabel = node.closest('label')?.textContent;
+        const formLabel = (explicitLabel || wrappingLabel || '').trim().slice(0, 500) || null;
+        const accessibleName = (node.getAttribute('aria-label') || formLabel || node.getAttribute('placeholder') || node.textContent || '').trim().slice(0, 500);
+        return {
           tag: node.tagName.toLowerCase(), role: node.getAttribute('role') || (node.tagName.toLowerCase() === 'a' ? 'link' : node.tagName.toLowerCase()),
-          label: (node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.textContent || '').trim().slice(0, 500), selector: selectorFor(node), capabilities: capabilitiesFor(node)
-        }));
+          label: accessibleName, selector, capabilities: capabilitiesFor(node), testId: node.dataset.testid || null,
+          formLabel, href: safeHrefFor(node),
+          unique: document.querySelectorAll(selector).length === 1, disabled: Boolean(node.disabled), readOnly: Boolean(node.readOnly)
+        };
+      });
     });
     process.stdout.write(JSON.stringify({ target, controls }));
   } finally { await browser.close(); }

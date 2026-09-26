@@ -18,6 +18,8 @@ export default defineConfig({
     env: { Quality__Api__Key: process.env.QUALITY_API_KEY ?? '', Quality__Api__AllowAnonymous: process.env.QUALITY_API_KEY ? 'false' : 'true', ASPNETCORE_URLS: baseURL, Quality__Store: 'File', Quality__RunWorker: 'true', Logging__LogLevel__Default: 'Warning',
       Quality__Artifacts__Mode: 'Local', Quality__Requirements__Mode: 'Stub', Quality__Planning__Mode: 'Stub',
       Quality__DataDirectory: dataDirectory,
-      Quality__Execution__RunDirectory: executionDirectory },
+      Quality__Execution__RunDirectory: executionDirectory,
+      Quality__Execution__Workspace: path.resolve(__dirname, '..'),
+      Quality__Execution__AllowedOrigins: baseURL },
   },
 });
