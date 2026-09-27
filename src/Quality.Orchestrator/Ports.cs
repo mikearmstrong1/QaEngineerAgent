@@ -35,6 +35,14 @@ public interface IRegressionProposalManager
     Task<RegressionProposal?> GetAsync(string runId, CancellationToken ct);
     Task<RegressionProposal> ApplyAsync(string runId, string reviewedPatchSha256, CancellationToken ct);
 }
+public interface IRegressionCatalogStore
+{
+    Task InitializeAsync(CancellationToken ct);
+    Task<IReadOnlyList<RegressionSuite>> ListAsync(CancellationToken ct);
+    Task<RegressionSuite?> GetAsync(string suiteId, CancellationToken ct);
+    Task<RegressionSuite> CreateAsync(RegressionSuite suite, CancellationToken ct);
+    Task<RegressionSuite> AppendAsync(RegressionVersion version, CancellationToken ct);
+}
 public interface ITestExecutor
 {
     Task<TestRun> ExecuteAsync(TestPlan plan, Uri baseUrl, CancellationToken ct);
@@ -86,8 +94,22 @@ public interface IAutomationWorkflowStore
     Task<AutomationWorkflow> SaveReviewAsync(AutomationWorkflow workflow, long expectedRevision, CancellationToken ct);
     Task<AutomationWorkflow?> CancelAsync(string id, DateTimeOffset now, CancellationToken ct);
 }
+public interface IAutomationScheduleStore
+{
+    Task InitializeAsync(CancellationToken ct);
+    Task<AutomationSchedule> CreateAsync(AutomationSchedule schedule, CancellationToken ct);
+    Task<AutomationSchedule?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<AutomationSchedule>> ListAsync(CancellationToken ct);
+    Task<AutomationSchedule> SetEnabledAsync(string id, long expectedRevision, bool enabled,
+        DateTimeOffset now, CancellationToken ct);
+    Task<AutomationSchedule?> ClaimDueAsync(DateTimeOffset now, TimeSpan lease, CancellationToken ct);
+    Task<AutomationSchedule> CompleteClaimAsync(AutomationSchedule schedule, long expectedRevision,
+        string leaseToken, string workflowId, DateTimeOffset now, CancellationToken ct);
+    Task ReleaseClaimAsync(string id, long expectedRevision, string leaseToken, CancellationToken ct);
+}
 public sealed class ExecutionRequestConflictException() : Exception("Execution request changed; reload before retrying");
 public sealed class ExecutionPolicyConflictException() : Exception("Execution policy revision already exists with different content or state");
 public sealed class AutomationWorkflowConflictException() : Exception("Automation workflow changed; reload before retrying");
+public sealed class AutomationScheduleConflictException() : Exception("Automation schedule changed; reload before retrying");
 public sealed class IdempotencyConflictException() : Exception("Idempotency key was already used for a different request");
 public sealed class LeaseLostException() : Exception("Job lease expired or ownership changed");

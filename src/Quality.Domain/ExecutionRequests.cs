@@ -39,4 +39,8 @@ public sealed record ExecutionRequest(
     string? AutomationPolicyHash = null,
     string? AutomationPolicySnapshot = null,
     string? AutomationEnvironment = null,
-    DateTimeOffset? AutoLaunchReservedAt = null);
+    DateTimeOffset? AutoLaunchReservedAt = null,
+    string? ParentExecutionRequestId = null,
+    string? RootExecutionRequestId = null,
+    int RerunAttempt = 0,
+    DateTimeOffset? RerunEscalatedAt = null);

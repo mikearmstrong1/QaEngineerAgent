@@ -50,15 +50,18 @@ public sealed record PlanningMetadata(string Provider, string RequestedModel, st
 public sealed record TestPlan(string Id, string RequirementId, string Summary, TestCase[] TestCases,
     string[] Assumptions, string[] CoverageGaps, string PromptVersion, bool IsStub, string SchemaVersion = "1.0",
     PlanningMetadata? Planning = null);
+public sealed record ArtifactVerification(string SourceSha256, string StoredSha256, bool ChecksumVerified,
+    string RedactionStatus, DateTimeOffset VerifiedAt);
+public sealed record EvidencePublicationRequirements(string[] RequiredArtifactPatterns, int? RetentionDays = null);
 public sealed record StoredArtifact(string LocalKey, string ObjectKey, string Bucket, string ContentType, long Length, string Sha256,
-    string? Provider = null);
+    string? Provider = null, ArtifactVerification? Verification = null);
 public sealed record TestCaseRunResult(string TestCaseId, string Status, string Classification, long DurationMilliseconds);
 public sealed record TestRun(string Id, string TestPlanId, string Status, DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt, string[] ArtifactKeys, string? ExecutorVersion, string SchemaVersion = "1.0",
     string? ManifestHash = null, string[]? TestCaseIds = null,
     StoredArtifact[]? StoredArtifacts = null, string? ArtifactUploadStatus = null,
     string? FailureClassification = null, string? FailureReviewReason = null,
-    TestCaseRunResult[]? TestResults = null);
+    TestCaseRunResult[]? TestResults = null, EvidencePublicationRequirements? EvidenceRequirements = null);
 public sealed record FailureAnalysis(string Id, string TestRunId, string Classification,
     string Summary, string[] EvidenceArtifactKeys, double Confidence, bool RequiresReview, string SchemaVersion = "1.0",
     StoredArtifact[]? EvidenceArtifacts = null);

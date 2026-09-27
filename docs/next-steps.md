@@ -1,6 +1,6 @@
 # Project build plan
 
-Last checked: **2026-09-26** against `main` after `0e37e6d`, the current source tree, local .NET/Node/Playwright verification, PostgreSQL, MinIO, and the documented deployment evidence.
+Last checked: **2026-09-27** against the working tree after `101678b`, local .NET/Node/Playwright verification, PostgreSQL, MinIO, Compose recreation, and the local Linux arm64 image scan. The changes described below are not yet committed or published.
 
 ## Product goals
 
@@ -12,11 +12,11 @@ The design should automate the entire process with optional human checkpoints an
 | Product goal | Current state | Remaining definition of done |
 | --- | --- | --- |
 | Consume Jira stories and build test cases | Implemented | Keep live-provider contract tests and surface source-revision drift before execution. |
-| Create Playwright tests from test cases | Coverage-aware read-only preparation implemented | Expand semantic mappings and add governed test identity/data/preconditions/cleanup before mutations can run autonomously. |
-| Execute tests and capture results | Implemented for reviewed and policy-approved requests | Per-test status, classification, duration, reports, logs, and failure traces/screenshots are persisted with each run. Make evidence publication resumable. |
-| Automate safely with optional human review | Durable policy-bound workflow implemented | Add richer governance, per-step confidence, declared test data/cleanup, bounded reruns, and automated promotion proposals. |
-| Persist a regression suite | Partially implemented | Replace patch-only promotion with a first-class immutable suite/version catalog and automated validation/PR creation. Keep merge approval external and explicit. |
-| Demonstrate results traceable to Jira | Foundation implemented | Add a story-level acceptance criterion → test → manifest → run → evidence view and export. |
+| Create Playwright tests from test cases | Coverage-aware preparation and governed mutations implemented | Expand deterministic semantic mappings and execute governed cleanup verification end to end. |
+| Execute tests and capture results | Implemented for reviewed and policy-approved requests | Evidence publication is resumable and verified; bind requirements directly into immutable policy revisions. |
+| Automate safely with optional human review | Durable workflows, signed triggers, schedules, and exact-authority reruns implemented | Add role-separated activation and automated promotion proposals. |
+| Persist a regression suite | Immutable catalog foundation implemented | Couple accepted proposals to catalog versions and automate isolated validation/PR creation. Keep merge approval external and explicit. |
+| Demonstrate results traceable to Jira | Lineage/export foundation implemented | Add the Command Center lineage view and operational SLO dashboards. |
 
 ## Implemented baseline
 
@@ -31,10 +31,10 @@ The design should automate the entire process with optional human checkpoints an
 ## Audit findings that change the old plan
 
 1. **Autonomous mode is no longer the next unimplemented feature.** The canary exists on `main`; the next step is to make its authority, state, and recovery production-grade.
-2. **Policy revisioning and launch budgets are implemented; richer governance remains.** Policy content is immutable by name/version, PostgreSQL and file stores enforce lifecycle state with one active revision per name, legacy file policies migrate, and requests retain the canonical policy snapshot/fingerprint and named environment. Lifetime, rolling-window, and concurrency budgets are reserved atomically before queueing. Test-identity/cleanup declarations, artifact requirements, and role-separated activation are still pending.
+2. **Policy revisioning, mutation declarations, and launch/rerun budgets are implemented; richer governance remains.** Policy content is immutable by name/version, PostgreSQL and file stores enforce lifecycle state with one active revision per name, legacy file policies migrate, and requests retain the canonical policy snapshot/fingerprint and named environment. Lifetime, rolling-window, concurrency, infrastructure-rerun, and declared-flaky budgets are bounded. Mutating automation requires secret-free named references for test identity, test data, preconditions, deterministic cleanup actions, and cleanup verification. Direct policy binding for evidence requirements and role-separated activation are still pending.
 3. **Autonomous execution is now a durable workflow.** Trigger, planning validation, inspection, manifest preparation, policy evaluation, review, queueing, execution, evidence, and classification have persisted checkpoints, stage keys, bounded retries, fenced leases, cancellation, and resume behavior. Trigger idempotency converges duplicate deliveries and deterministic request identity prevents duplicate browser runs.
-4. **Launch authorization and recovery are bounded.** Fingerprint-scoped lifetime, rolling-window, and concurrency limits reserve atomically. Policy gates, exhausted budgets, and fail-closed reservations pause the same workflow for review. Separately budgeted reruns remain future work.
-5. **Generated coverage now fails closed and explains itself.** Manifest preparation persists every planned action and expected-result mapping, confidence, reason, structured gap, and mutation flag. Rotating assertions and the generic `body` fallback are removed. Incomplete, ambiguous, low-confidence, or mutating preparations pause for review; declared test identity/data/preconditions/cleanup remain pending.
+4. **Launch authorization and reruns are bounded.** Fingerprint-scoped lifetime, rolling-window, and concurrency limits reserve atomically. Infrastructure and declared-flaky reruns use separate policy budgets, preserve the exact manifest, approval, policy snapshot, and fingerprint, and record durable parent/root/attempt lineage. Exhaustion records one durable escalation. Policy gates and fail-closed reservations pause for review.
+5. **Generated coverage now fails closed and explains itself.** Manifest preparation persists every planned action and expected-result mapping, confidence, reason, structured gap, and mutation flag. Rotating assertions and the generic `body` fallback are removed. Incomplete, ambiguous, or low-confidence preparations pause for review; mutations require complete policy-owned identity/data/precondition/cleanup declarations.
 6. **Terminal parity covers policy and workflow control.** CLI commands create/list/show/activate/disable/retire revisions and create/get/review/cancel automation workflows through the same services as the API and Command Center. Future governance fields must continue to ship across all three surfaces.
 7. **The feedback loop remains human-heavy.** Failure classification, retry decisions, regression membership, source-control proposal validation, and story-level reporting are separate/manual operations rather than policy-driven stages.
 8. **Operational scope remains local/private.** Bearer authentication is appropriate for the current deployment, but rate limiting, role separation, tenant isolation, and stronger execution sandboxing are still required before broader or multi-user exposure.
@@ -59,27 +59,27 @@ The read-only inventory now records role, accessible name, test ID, form relatio
 
 **Exit gate:** golden fixtures cover ambiguous labels, duplicate controls, missing selectors, navigation, and destructive wording; low-confidence or incomplete mappings escalate; the autonomous path cannot approve a test with unmatched required steps, generic-only assertions, undeclared data, or uncertain cleanup; generated manifests remain deterministic for the same plan, policy, and inspection.
 
-### 4. Add triggers and bounded reruns on top of the durable workflow
+### 4. Add triggers and bounded reruns on top of the durable workflow — implemented foundation
 
-Support signed deployment/source webhooks and schedules that only create idempotent workflow triggers. Bind each trigger to an active policy revision and named environment. Add separately budgeted reruns for clearly identified infrastructure failures and declared flaky tests; reruns must reuse the exact manifest/policy and may never widen origins, selectors, actions, credentials, or data permissions.
+Signed deployment/source webhook envelopes validate HMAC, expiry, future skew, and payload integrity before creating an idempotent workflow. Durable file/PostgreSQL schedules use atomic due claims, deterministic occurrence keys, bounded catch-up, and preserved history across disable/re-enable. Separately budgeted reruns are available through the service, API, BFF, and CLI for clearly identified infrastructure failures and policy-declared flaky tests; they reuse the persisted exact manifest and policy snapshot and cannot widen authority.
 
 **Exit gate:** signature/replay/expiry tests pass; duplicate delivery creates one workflow; invalid or stale triggers create no job; rerun exhaustion escalates once; schedules and webhooks can be disabled without deleting history; trigger submission is available from CLI for deterministic testing.
 
-### 5. Automate deterministic triage and evidence publication
+### 5. Automate deterministic triage and evidence publication — recovery foundation implemented
 
-Automatically classify only evidence-backed infrastructure conditions and known test-harness failures. Leave assertion/application ambiguity in `AwaitingReview` unless a policy explicitly accepts a high-confidence rule. Make artifact publication resumable from abandoned `Uploading` states, apply retention policy by policy revision, and record redaction/checksum results before evidence is exposed or promoted.
+Artifact publication now resumes abandoned `Uploading`/`Failed` runs from content-addressed checkpoints, records checksum/redaction verification, and blocks reads, failure association, and promotion until required evidence is verified. Continue by binding artifact/retention requirements to policy revisions and expanding deterministic evidence-backed classification rules while leaving assertion/application ambiguity in review.
 
 **Exit gate:** classification fixtures have no false application-failure claims; uncertain results always escalate; interrupted uploads resume without rerunning tests; redaction tests cover headers, URLs, screenshots/text, and provider errors; missing required evidence prevents autonomous promotion.
 
-### 6. Close the regression loop with immutable suite versions
+### 6. Close the regression loop with immutable suite versions — catalog foundation implemented
 
-Add durable `RegressionSuite`, `RegressionCase`, and immutable `RegressionVersion` records linking requirement/source revision, acceptance criteria, test case, policy revision, exact manifest, runs, evidence, confidence, and promotion state. Policy-eligible passing workflows may create membership proposals automatically. Materialize additive changes in an isolated worktree, run repository checks, and create a branch/commit/pull request. Keep merge approval and any target-repository permission broadening explicit.
+Durable file-backed `RegressionSuite`, `RegressionCase`, and immutable `RegressionVersion` records now enforce deterministic IDs and append-only version chains. API and CLI endpoints list, inspect, and hash-export exact or active versions. Next, couple reviewed/applied proposals to catalog versions, materialize additive changes in an isolated worktree, run repository checks, and create a branch/commit/pull request. Keep merge approval and permission broadening explicit.
 
 **Exit gate:** repeated promotion is idempotent; existing coverage is never silently overwritten; rollback selects a prior immutable version; repository checks must pass before PR creation; failures leave a reviewable proposal and clean worktree; merge/deploy is never automatic.
 
-### 7. Deliver story-level traceability and operational SLOs
+### 7. Deliver story-level traceability and operational SLOs — export foundation implemented
 
-Add an API, Command Center view, and export for Jira story/revision → criterion → planned test → manifest/version → run/rerun → evidence → regression membership. Add durable queue/workflow metrics, escalation counts, automation yield, false-escalation sampling, budget usage, and end-to-end latency. Define release gates and retention for the audit records.
+Catalog services now derive story/criterion/test/manifest/run lineage, deterministic hashed exports, execution coverage, and pass metrics from persisted versions. Add the Command Center lineage view plus durable queue/workflow metrics, escalation counts, automation yield, false-escalation sampling, budget usage, and end-to-end latency.
 
 **Exit gate:** every displayed status is derived from persisted lineage; exports verify hashes and identify gaps/stale source revisions; dashboards distinguish application, test, infrastructure, policy, and review waits; a release run proves the complete non-production story-to-PR path with human review disabled except for deliberately injected escalation cases.
 
@@ -97,9 +97,11 @@ Human review is therefore an explicit policy checkpoint and a safe fallback, not
 
 ## Verification checkpoint
 
-- `dotnet test -c Release`: **209 passed, 1 skipped** against an isolated PostgreSQL database and MinIO resources. Only the credential-dependent Azure integration test was skipped.
+- `dotnet test -c Release`: **242 passed, 1 skipped** against isolated PostgreSQL schemas and MinIO. Only the credential-dependent Azure integration test was skipped.
 - `npm run build`: **passed**.
-- `QUALITY_SMOKE_PORT=5090 npm test`: **6 passed**.
+- Compose recreation/persistence and container controls: **passed**.
+- Container Chromium smoke: **6 passed** with the smoke API origin explicitly allowlisted.
 - `npm run test:execution`: **12 passed**.
+- Linux arm64 image `sha256:b4b154888ff78c6faf27fa3af8e4f562088895698426c30928b6706ebb821a79`: **0 HIGH/CRITICAL findings** with Trivy 0.74.0 on 2026-09-27.
 
 Use local Qwen for bounded implementation drafts, test proposals, and reviews where practical. Review its output and execute verification through the supervising agent; Qwen does not have independent shell access.

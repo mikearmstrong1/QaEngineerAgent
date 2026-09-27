@@ -82,6 +82,21 @@ internal static class PostgresMigrations
         CREATE INDEX ix_quality_automation_workflows_claim
             ON quality_automation_workflows(created_at)
             WHERE status NOT IN ('AwaitingReview','Completed','Failed','Cancelled');
+        """, """
+        CREATE TABLE quality_automation_schedules (
+            id text PRIMARY KEY,
+            name text NOT NULL,
+            enabled boolean NOT NULL,
+            next_occurrence_at timestamptz NOT NULL,
+            revision bigint NOT NULL,
+            lease_token text NULL,
+            lease_until timestamptz NULL,
+            document jsonb NOT NULL
+        );
+        CREATE UNIQUE INDEX ux_quality_automation_schedules_name
+            ON quality_automation_schedules(lower(name));
+        CREATE INDEX ix_quality_automation_schedules_due
+            ON quality_automation_schedules(next_occurrence_at, id) WHERE enabled;
         """];
 
     public static async Task ApplyAsync(NpgsqlDataSource source, CancellationToken ct)

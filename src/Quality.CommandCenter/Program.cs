@@ -98,6 +98,13 @@ app.MapPost("/bff/jobs/{id}/autonomous-executions", async Task<IResult> (string 
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/jobs/{id}/autonomous-executions", JsonContent.Create(input), ct);
 });
+app.MapPost("/bff/execution-requests/{id}/rerun", async Task<IResult> (string id, HttpRequest request,
+    RerunExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/rerun", JsonContent.Create(input), ct);
+});
 app.MapPost("/bff/automation-workflows/{id}/review", async Task<IResult> (string id, HttpRequest request,
     ReviewAutomationWorkflow input, IHttpClientFactory factory, CancellationToken ct) =>
 {
@@ -277,10 +284,14 @@ sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? Allo
     int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
     int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
     int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1,
-    string? MinimumMappingConfidence = "High");
+    string? MinimumMappingConfidence = "High", MutationGovernanceInput? MutationGovernance = null,
+    int MaxInfrastructureReruns = 0, int MaxFlakyTestReruns = 0, string[]? FlakyTestIds = null);
+sealed record MutationGovernanceInput(string? TestIdentityReference, string? TestDataProfileReference,
+    string[]? PreconditionReferences, string[]? CleanupActionReferences, string? CleanupVerificationReference);
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);
 sealed record LaunchExecution(long Revision);
+sealed record RerunExecution(long Revision);
 
 public partial class Program { }

@@ -14,6 +14,11 @@ public sealed class ArtifactContentReader(ITestRunStore runs, IArtifactStore art
         var run = await runs.GetAsync(runId, ct);
         if (run is null) return null;
         var stored = (run.StoredArtifacts ?? []).SingleOrDefault(item => item.LocalKey == key || item.ObjectKey == key);
+        if (run.ArtifactUploadStatus is not null && (run.ArtifactUploadStatus != "Uploaded"
+            || stored?.Verification is not { ChecksumVerified: true }
+            || stored.Verification.SourceSha256 != stored.Verification.StoredSha256
+            || stored.Verification.RedactionStatus is not ("TextScanPassed" or "BinaryMetadataScanPassed")))
+            throw new InvalidOperationException("Artifact has not passed publication verification");
         var localKey = stored?.LocalKey ?? key;
         if (!run.ArtifactKeys.Contains(localKey, StringComparer.Ordinal) || !localKey.StartsWith(runId + "/", StringComparison.Ordinal))
             throw new ArgumentException("Artifact does not belong to this run");

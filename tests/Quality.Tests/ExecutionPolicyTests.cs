@@ -108,6 +108,63 @@ public sealed class ExecutionPolicyTests
     }
 
     [Fact]
+    public void MutationGovernanceIsCanonicalImmutablePolicyContent()
+    {
+        var policy = Policy("v1", autoLaunch: false) with
+        {
+            MutationGovernance = new("qa-service-account", "isolated-customer-profile",
+                ["empty-test-tenant"], ["delete-created-customer"], "customer-absent")
+        };
+
+        ExecutionPolicyCatalog.ValidatePolicy(policy);
+        Assert.Contains("mutationGovernance", policy.CanonicalJson());
+        Assert.NotEqual(Policy("v1", autoLaunch: false).Fingerprint(), policy.Fingerprint());
+        var roundTrip = JsonSerializer.Deserialize<ExecutionPolicy>(policy.CanonicalJson(), ContractJson.Options)!;
+        Assert.Equal(policy.CanonicalJson(), roundTrip.CanonicalJson());
+        Assert.Equal(policy.Fingerprint(), roundTrip.Fingerprint());
+    }
+
+    [Theory]
+    [InlineData("", "data-profile", "precondition", "cleanup", "verification")]
+    [InlineData("identity", "secret=value", "precondition", "cleanup", "verification")]
+    [InlineData("identity", "data-profile", "", "cleanup", "verification")]
+    [InlineData("identity", "data-profile", "precondition", "", "verification")]
+    [InlineData("identity", "data-profile", "precondition", "cleanup", "")]
+    public void MutationGovernanceRejectsIncompleteOrValueLikeReferences(string identity, string data,
+        string precondition, string cleanup, string verification)
+    {
+        var policy = Policy("v1", autoLaunch: false) with
+        {
+            MutationGovernance = new(identity, data, [precondition], [cleanup], verification)
+        };
+
+        Assert.Throws<ArgumentException>(() => ExecutionPolicyCatalog.ValidatePolicy(policy));
+    }
+
+    [Fact]
+    public void RerunGovernanceIsCanonicalAndRequiresDeclaredFlakyTests()
+    {
+        var governed = Policy("v1", autoLaunch: false) with
+        {
+            MaxInfrastructureReruns = 2,
+            MaxFlakyTestReruns = 1,
+            FlakyTestIds = ["TC-2", "TC-1"]
+        };
+
+        ExecutionPolicyCatalog.ValidatePolicy(governed);
+        Assert.Contains("maxInfrastructureReruns", governed.CanonicalJson());
+        Assert.True(governed.CanonicalJson().IndexOf("TC-1", StringComparison.Ordinal) <
+            governed.CanonicalJson().IndexOf("TC-2", StringComparison.Ordinal));
+        Assert.NotEqual(Policy("v1", autoLaunch: false).Fingerprint(), governed.Fingerprint());
+        Assert.Throws<ArgumentException>(() => ExecutionPolicyCatalog.ValidatePolicy(
+            governed with { FlakyTestIds = [] }));
+        Assert.Throws<ArgumentException>(() => ExecutionPolicyCatalog.ValidatePolicy(
+            governed with { MaxFlakyTestReruns = 0 }));
+        Assert.Throws<ArgumentException>(() => ExecutionPolicyCatalog.ValidatePolicy(
+            governed with { FlakyTestIds = ["TC-1", "TC-1"] }));
+    }
+
+    [Fact]
     public async Task CliCreatesActivatesShowsDisablesAndListsTheSameRevision()
     {
         var root = Path.Combine(Path.GetTempPath(), "quality-policy-cli-" + Guid.NewGuid().ToString("N"));
@@ -131,6 +188,12 @@ public sealed class ExecutionPolicyTests
             Assert.Contains(listed.RootElement.GetProperty("items").EnumerateArray(), item =>
                 item.GetProperty("name").GetString() == "local-readonly"
                 && item.GetProperty("status").GetString() == "Disabled");
+
+            var mutationExample = Path.Combine(repository, "schemas/examples/execution-policy-mutations.json");
+            var mutationCreated = JsonSerializer.Deserialize<ExecutionPolicyRevision>(
+                await RunCliAsync(repository, root, "policy-create", "--file", mutationExample), ContractJson.Options)!;
+            Assert.Equal("qa-service-account", mutationCreated.Policy.MutationGovernance!.TestIdentityReference);
+            Assert.Equal(mutationCreated.Policy.Fingerprint(), mutationCreated.Fingerprint);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

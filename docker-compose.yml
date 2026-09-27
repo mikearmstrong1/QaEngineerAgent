@@ -49,6 +49,8 @@ x-quality: &quality
     Quality__Execution__Policies__0__AutoLaunchWindowSeconds: ${QUALITY_AUTONOMOUS_POLICY_WINDOW_SECONDS:-3600}
     Quality__Execution__Policies__0__MaxAutoLaunchesPerWindow: ${QUALITY_AUTONOMOUS_POLICY_MAX_PER_WINDOW:-1}
     Quality__Execution__Policies__0__MinimumMappingConfidence: ${QUALITY_AUTONOMOUS_POLICY_MINIMUM_MAPPING_CONFIDENCE:-High}
+    Quality__Automation__Triggers__SigningSecret: ${QUALITY_AUTOMATION_TRIGGER_SIGNING_SECRET:-}
+    Quality__Automation__Triggers__MaximumAgeSeconds: ${QUALITY_AUTOMATION_TRIGGER_MAXIMUM_AGE_SECONDS:-300}
     Quality__Requirements__Mode: ${QUALITY_REQUIREMENTS_MODE:-Stub}
     Quality__Requirements__Jira__BaseUrl: ${JIRA_BASE_URL:-}
     Quality__Requirements__Jira__Email: ${JIRA_EMAIL:-}

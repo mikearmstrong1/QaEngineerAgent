@@ -12,7 +12,8 @@ public sealed class AutomationWorkflowService(
     IUiInspector inspector,
     ITestRunStore runs,
     ExecutionPolicyCatalog policies,
-    TimeProvider clock)
+    TimeProvider clock,
+    RunArtifactPublisher? publisher = null)
 {
     private const int MaximumStageAttempts = 3;
 
@@ -168,6 +169,12 @@ public sealed class AutomationWorkflowService(
             case AutomationWorkflowStatus.Executed:
             {
                 var run = workflow.RunId is null ? null : await runs.GetAsync(workflow.RunId, ct);
+                // Publication is a separate durable phase. Recover a failed/abandoned upload from
+                // the run's per-object checkpoints; never execute the reviewed test a second time.
+                if (run is not null && publisher is not null && run.ArtifactUploadStatus is ("Uploading" or "Failed"))
+                    run = await publisher.PublishAsync(run.Id, ct, run.EvidenceRequirements);
+                if (run?.ArtifactUploadStatus is ("Uploading" or "Failed"))
+                    throw new InvalidOperationException("Evidence publication is incomplete");
                 var detail = run?.ArtifactUploadStatus ?? (workflow.RunId is null ? "no_run_evidence" : "local_evidence");
                 return Transition(workflow, AutomationWorkflowStatus.EvidencePublished, now, detail);
             }
@@ -290,7 +297,7 @@ public sealed class AutomationWorkflowService(
         catch (ArgumentException) { return "policy_manifest_rejected"; }
         if (!preparation.Complete || preparation.Gaps.Length != 0) return "coverage_incomplete";
         if ((int)preparation.OverallConfidence < (int)policy.MinimumMappingConfidence) return "mapping_confidence_below_policy";
-        if (preparation.HasMutations) return "mutation_governance_required";
+        if (preparation.HasMutations && policy.MutationGovernance is null) return "mutation_governance_required";
         try { policy.ValidatePreparation(preparation); }
         catch (ArgumentException) { return "preparation_policy_rejected"; }
         return null;
