@@ -9,6 +9,10 @@ if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var apiBase) || apiBase.Scheme 
     apiBase.UserInfo.Length != 0 || apiBase.Query.Length != 0 || apiBase.Fragment.Length != 0)
     throw new ArgumentException("Quality__CommandCenter__ApiUrl must be an HTTP(S) origin");
 var apiKey = builder.Configuration["Quality:CommandCenter:ApiKey"] ?? "";
+var planningMode = SafeDisplayValue(builder.Configuration["Quality:Planning:Mode"], "Stub");
+var configuredPlanningModel = builder.Configuration["Quality:Planning:Model"];
+var planningModel = SafeDisplayValue(string.IsNullOrWhiteSpace(configuredPlanningModel)
+    ? builder.Configuration["Quality:Planning:Azure:Deployment"] : configuredPlanningModel, "Not specified");
 builder.Services.AddHttpClient("quality", client =>
 {
     client.BaseAddress = apiBase;
@@ -34,6 +38,11 @@ app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = context =>
     context.Context.Response.Headers.CacheControl = "no-cache" });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-command-center" }));
+app.MapGet("/bff/configuration", () => Results.Ok(new
+{
+    planningProvider = planningMode,
+    planningModel
+}));
 app.MapGet("/bff/status", async (IHttpClientFactory factory, CancellationToken ct) =>
     await ForwardAsync(factory, HttpMethod.Get, "/ready", null, ct));
 app.MapGet("/bff/jobs", async (int? limit, string? cursor, IHttpClientFactory factory, CancellationToken ct) =>
@@ -230,6 +239,13 @@ app.MapPost("/bff/jobs", async Task<IResult> (HttpRequest request, SubmitRequest
 
 app.MapFallbackToFile("index.html");
 await app.RunAsync();
+
+static string SafeDisplayValue(string? value, string fallback)
+{
+    var normalized = value?.Trim();
+    if (string.IsNullOrWhiteSpace(normalized)) return fallback;
+    return normalized.Length <= 120 ? normalized : normalized[..120];
+}
 
 static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod method, string path, HttpContent? content, CancellationToken ct)
 {

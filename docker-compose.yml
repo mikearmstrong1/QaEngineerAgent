@@ -98,6 +98,9 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       Quality__CommandCenter__ApiUrl: http://api:8080
       Quality__CommandCenter__ApiKey: ${QUALITY_API_KEY:-}
+      Quality__Planning__Mode: ${QUALITY_PLANNING_MODE:-Stub}
+      Quality__Planning__Model: ${QUALITY_PLANNING_MODEL:-}
+      Quality__Planning__Azure__Deployment: ${AZURE_OPENAI_DEPLOYMENT:-}
     ports: ["127.0.0.1:5081:8080"]
     read_only: true
     tmpfs: ["/tmp:mode=1777"]

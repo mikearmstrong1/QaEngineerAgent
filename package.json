@@ -10,6 +10,7 @@
     "test": "npm test --workspace @quality/playwright",
     "test:smoke": "npm run test:smoke --workspace @quality/playwright",
     "test:execution": "node --test scripts/execution.test.cjs",
+    "test:command-center": "node --test scripts/command-center-ui.test.cjs scripts/command-center-ux.test.cjs",
     "test:regressions": "playwright test --config playwright/regressions.config.cjs"
   },
   "engines": {

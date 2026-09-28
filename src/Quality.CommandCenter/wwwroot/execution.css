@@ -17,10 +17,31 @@
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   tab-size: 2;
 }
+.manifest-review { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 15px; }
+.section-help { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 6px 0 10px; }
+.manifest-overview { display: grid; gap: 8px; margin: 10px 0; }
+.manifest-test { background: #08110f; border: 1px solid var(--line); border-radius: 9px; padding: 11px; }
+.manifest-test ol { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 8px 0 0; padding-left: 22px; }
+.raw-manifest { margin-top: 12px; color: var(--blue); }
+.raw-manifest summary { cursor: pointer; font-weight: 750; }
+.identifier { display: inline-flex; align-items: center; gap: 6px; }
+.identifier code { color: var(--mint); font-size: 11px; }
+.copy-button { background: transparent; border: 1px solid var(--line); color: var(--mint); font-size: 10px; padding: 3px 6px; }
+.evidence-toggle { background: transparent; border: 1px solid var(--line); color: var(--blue); padding: 8px 10px; }
+.evidence-toggle:hover, .evidence-toggle:focus-visible { border-color: var(--blue); }
 .execution-card > .compact { width: auto; margin-top: 12px; }
 .inspection-box { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 15px; }
 .policy-registry { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .policy-manager { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.policy-administration > summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--ink); }
+.policy-administration > summary > span:first-child { display: grid; gap: 3px; }
+.policy-administration > summary small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.policy-administration > select { width: 100%; margin: 14px 0 8px; }
+.policy-administration > button { margin-bottom: 10px; }
+.job-context { display: flex; justify-content: space-between; gap: 6px; margin-top: 7px; color: #b3c9c3; font-size: 11px; }
+.job-context span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-context span:last-child { text-align: right; color: var(--mint); }
+.job-card .job-time { margin-top: 5px; }
 .policy-manager h2 { margin: 3px 0 8px; font-size: 18px; }
 .policy-manager > select { width: 100%; margin: 8px 0; }
 .policy-manager > button { margin-bottom: 10px; }
