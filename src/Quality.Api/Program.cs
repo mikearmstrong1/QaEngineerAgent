@@ -10,10 +10,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-explain --id <request-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | regression-list | regression-show --suite <suite-id> | regression-export --suite <suite-id> [--version <version-id>] | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | schedule-list | schedule-show --id <schedule-id> | schedule-create --name <name> --job <job-id> --target <url> --policy <name> --interval-seconds <n> --enabled <true|false> [--first-occurrence <timestamp>] | schedule-enable|schedule-disable --id <schedule-id> --revision <n> | schedule-run-due | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-explain --id <request-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch|execution-rerun --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "execution-create" or "execution-list" or "execution-explain" or "execution-update" or "execution-approve" or "execution-launch" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "regression-list" or "regression-show" or "regression-export" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "schedule-list" or "schedule-show" or "schedule-create" or "schedule-enable" or "schedule-disable" or "schedule-run-due" or "execution-create" or "execution-list" or "execution-explain" or "execution-update" or "execution-approve" or "execution-launch" or "execution-rerun" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -36,6 +36,8 @@ try
             ConfigureServices(metricsBuilder.Services, metricsBuilder.Configuration, true);
             await using var metricsHost = metricsBuilder.Build();
             await metricsHost.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+            await metricsHost.Services.GetRequiredService<IAutomationScheduleStore>().InitializeAsync(CancellationToken.None);
+            await metricsHost.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
             metricsHost.UseRouting();
             metricsHost.Use((context, next) => metricsAccess.InvokeAsync(context, next));
             MapMetrics(metricsHost);
@@ -45,6 +47,8 @@ try
         ConfigureServices(workerBuilder.Services, workerBuilder.Configuration, true);
         using var host = workerBuilder.Build();
         await host.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+        await host.Services.GetRequiredService<IAutomationScheduleStore>().InitializeAsync(CancellationToken.None);
+        await host.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
         await host.RunAsync();
         return 0;
     }
@@ -61,10 +65,36 @@ try
         mode == "api" && builder.Configuration.GetValue<bool>("Quality:RunWorker"));
     await using var app = builder.Build();
     await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
+    await app.Services.GetRequiredService<IRegressionCatalogStore>().InitializeAsync(CancellationToken.None);
+    await app.Services.GetRequiredService<IAutomationScheduleStore>().InitializeAsync(CancellationToken.None);
     if (mode == "api" || mode.StartsWith("policy-", StringComparison.Ordinal) || mode == "autonomous-execute"
-        || mode.StartsWith("automation-", StringComparison.Ordinal))
+        || mode.StartsWith("automation-", StringComparison.Ordinal) || mode.StartsWith("schedule-", StringComparison.Ordinal))
         await app.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
     var jobs = app.Services.GetRequiredService<JobService>();
+    if (mode.StartsWith("regression-", StringComparison.Ordinal))
+    {
+        var catalog = app.Services.GetRequiredService<IRegressionCatalogStore>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        if (mode == "regression-list")
+        {
+            if (args.Length != 1) throw new ArgumentException("regression-list takes no arguments");
+            Console.WriteLine(JsonSerializer.Serialize(new { items = await catalog.ListAsync(timeout.Token) }, ContractJson.Options));
+            return 0;
+        }
+        var parsed = ParseOptions(args.Skip(1).ToArray(), ["--suite"], mode == "regression-export" ? ["--version"] : []);
+        var suite = await catalog.GetAsync(parsed["--suite"], timeout.Token);
+        if (suite is null) { Console.Error.WriteLine("Regression suite not found"); return 3; }
+        if (mode == "regression-show")
+        {
+            Console.WriteLine(JsonSerializer.Serialize(suite, ContractJson.Options));
+            return 0;
+        }
+        var versionId = parsed.GetValueOrDefault("--version") ?? suite.ActiveVersionId;
+        var version = suite.Versions.SingleOrDefault(item => item.Id == versionId);
+        if (version is null) { Console.Error.WriteLine("Regression version not found"); return 3; }
+        Console.Write(RegressionCatalogService.Export(version).Content);
+        return 0;
+    }
     if (mode.StartsWith("policy-", StringComparison.Ordinal))
     {
         var policies = app.Services.GetRequiredService<ExecutionPolicyService>();
@@ -145,6 +175,58 @@ try
             review["--reviewer"], timeout.Token), ContractJson.Options));
         return 0;
     }
+    if (mode.StartsWith("schedule-", StringComparison.Ordinal))
+    {
+        var service = app.Services.GetRequiredService<AutomationScheduleService>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        if (mode == "schedule-list")
+        {
+            if (args.Length != 1) throw new ArgumentException("schedule-list takes no arguments");
+            Console.WriteLine(JsonSerializer.Serialize(new { items = await service.ListAsync(timeout.Token) }, ContractJson.Options));
+            return 0;
+        }
+        if (mode == "schedule-run-due")
+        {
+            if (args.Length != 1) throw new ArgumentException("schedule-run-due takes no arguments");
+            Console.WriteLine(JsonSerializer.Serialize(await service.ProcessNextDueAsync(timeout.Token), ContractJson.Options));
+            return 0;
+        }
+        if (mode == "schedule-show")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(), ["--id"]);
+            var schedule = await service.GetAsync(parsed["--id"], timeout.Token);
+            if (schedule is null) { Console.Error.WriteLine("Automation schedule not found"); return 3; }
+            Console.WriteLine(JsonSerializer.Serialize(schedule, ContractJson.Options));
+            return 0;
+        }
+        if (mode == "schedule-create")
+        {
+            var parsed = ParseOptions(args.Skip(1).ToArray(),
+                ["--name", "--job", "--target", "--policy", "--interval-seconds", "--enabled"], ["--first-occurrence"]);
+            if (!int.TryParse(parsed["--interval-seconds"], out var interval))
+                throw new ArgumentException("interval-seconds must be an integer");
+            if (!bool.TryParse(parsed["--enabled"], out var enabled))
+                throw new ArgumentException("enabled must be true or false");
+            DateTimeOffset? first = null;
+            if (parsed.TryGetValue("--first-occurrence", out var value))
+            {
+                if (!DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var parsedFirst))
+                    throw new ArgumentException("first-occurrence must be an ISO 8601 timestamp");
+                first = parsedFirst;
+            }
+            var created = await service.CreateAsync(parsed["--name"], parsed["--job"], parsed["--target"],
+                parsed["--policy"], interval, first, enabled, timeout.Token);
+            Console.WriteLine(JsonSerializer.Serialize(created, ContractJson.Options));
+            return 0;
+        }
+        var change = ParseOptions(args.Skip(1).ToArray(), ["--id", "--revision"]);
+        if (!long.TryParse(change["--revision"], out var revision) || revision < 0)
+            throw new ArgumentException("revision must be a non-negative integer");
+        Console.WriteLine(JsonSerializer.Serialize(await service.SetEnabledAsync(change["--id"], revision,
+            mode == "schedule-enable", timeout.Token), ContractJson.Options));
+        return 0;
+    }
     if (mode.StartsWith("execution-", StringComparison.Ordinal))
     {
         var service = app.Services.GetRequiredService<ExecutionRequestService>();
@@ -184,6 +266,7 @@ try
             }
             else if (mode == "execution-approve")
                 result = await service.ApproveAsync(parsed["--id"], revision, parsed["--sha256"], parsed["--reviewer"], timeout.Token);
+            else if (mode == "execution-rerun") result = await service.RerunAsync(parsed["--id"], revision, timeout.Token);
             else result = await service.LaunchAsync(parsed["--id"], revision, timeout.Token);
         }
         Console.WriteLine(JsonSerializer.Serialize(result, ContractJson.Options));
@@ -330,6 +413,44 @@ try
         }
         catch (ArgumentException ex) { return Results.BadRequest(new { error = "invalid_job_cursor", detail = ex.Message }); }
     });
+    app.MapGet("/regression-suites", async (IRegressionCatalogStore catalog, CancellationToken ct) =>
+        Results.Ok(new { items = await catalog.ListAsync(ct) }));
+    app.MapGet("/regression-suites/{suiteId}", async (string suiteId, IRegressionCatalogStore catalog, CancellationToken ct) =>
+    {
+        try { return await catalog.GetAsync(suiteId, ct) is { } suite ? Results.Ok(suite) : Results.NotFound(); }
+        catch (ArgumentException ex) { return Results.BadRequest(new { error = "invalid_regression_suite_id", detail = ex.Message }); }
+    });
+    app.MapGet("/regression-suites/{suiteId}/export", async (string suiteId, HttpResponse response,
+        IRegressionCatalogStore catalog, CancellationToken ct) =>
+    {
+        try
+        {
+            var suite = await catalog.GetAsync(suiteId, ct);
+            if (suite?.ActiveVersionId is null) return Results.NotFound();
+            var version = suite.Versions.Single(item => item.Id == suite.ActiveVersionId);
+            var export = RegressionCatalogService.Export(version);
+            response.Headers["X-Content-SHA256"] = export.Sha256;
+            response.Headers.CacheControl = "private,no-store";
+            return Results.Text(export.Content, export.ContentType, Encoding.UTF8);
+        }
+        catch (ArgumentException ex) { return Results.BadRequest(new { error = "invalid_regression_suite_id", detail = ex.Message }); }
+    });
+    app.MapGet("/regression-suites/{suiteId}/versions/{versionId}/export", async (string suiteId, string versionId,
+        HttpResponse response, IRegressionCatalogStore catalog, CancellationToken ct) =>
+    {
+        try
+        {
+            var suite = await catalog.GetAsync(suiteId, ct);
+            if (suite is null) return Results.NotFound();
+            var version = suite.Versions.SingleOrDefault(item => item.Id == versionId);
+            if (version is null) return Results.NotFound();
+            var export = RegressionCatalogService.Export(version);
+            response.Headers["X-Content-SHA256"] = export.Sha256;
+            response.Headers.CacheControl = "private,no-store";
+            return Results.Text(export.Content, export.ContentType, Encoding.UTF8);
+        }
+        catch (ArgumentException ex) { return Results.BadRequest(new { error = "invalid_regression_suite_id", detail = ex.Message }); }
+    });
     app.MapPost("/jobs/{id}/cancel", async (string id, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
@@ -343,6 +464,18 @@ try
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
         var job = await jobs.GetAsync(id, ct);
         return job is null ? Results.NotFound() : Results.Ok(job);
+    });
+    app.MapGet("/jobs/{id}/lineage", async (string id, ExecutionRequestService executions,
+        ITestRunStore runs, IRegressionCatalogStore catalog, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        var job = await jobs.GetAsync(id, ct);
+        if (job is null) return Results.NotFound();
+        if (job.Requirement is null || job.TestPlan is null)
+            return Results.Conflict(new { error = "lineage_not_ready" });
+        return Results.Ok(RegressionCatalogService.BuildJobLineage(job,
+            await executions.ListByJobAsync(id, ct), await runs.ListByPlanAsync(job.TestPlan.Id, ct),
+            await catalog.ListAsync(ct)));
     });
     app.MapPost("/jobs/{id}/execution-requests", async (string id, CreateExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
     {
@@ -380,7 +513,8 @@ try
             var policy = new ExecutionPolicy(input.Name ?? "", input.Version ?? "", input.AllowedOrigins ?? [], input.AllowedActions ?? [],
                 input.MaxTimeoutSeconds, input.NonProduction, input.AutoApprove, input.AutoLaunch, input.CanaryMaxAutoLaunches,
                 input.Environment ?? "default", input.MaxConcurrentAutoLaunches, input.AutoLaunchWindowSeconds,
-                input.MaxAutoLaunchesPerWindow, input.MinimumMappingConfidence);
+                input.MaxAutoLaunchesPerWindow, input.MinimumMappingConfidence, input.MutationGovernance,
+                input.MaxInfrastructureReruns, input.MaxFlakyTestReruns, input.FlakyTestIds);
             await policies.CreateAsync(policy, false, ct);
             return Results.Ok(new { items = policies.Describe() });
         }
@@ -416,6 +550,59 @@ try
         }
         catch (IdempotencyConflictException) { return Results.Conflict(new { error = "idempotency_key_conflict" }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["autonomousExecution"] = [ex.Message] }); }
+    });
+    app.MapPost("/automation-triggers/webhook", async (SignedAutomationTrigger input,
+        AutomationTriggerVerifier verifier, AutomationWorkflowService workflows, CancellationToken ct) =>
+    {
+        try
+        {
+            var idempotencyKey = verifier.Verify(input);
+            var workflow = await workflows.CreateAsync(input.JobId, input.Target, input.PolicyName, idempotencyKey, ct);
+            return Results.Accepted($"/automation-workflows/{workflow.Id}", workflow);
+        }
+        catch (IdempotencyConflictException) { return Results.Conflict(new { error = "idempotency_key_conflict" }); }
+        catch (InvalidOperationException ex) { return Results.Problem(ex.Message, statusCode: 503); }
+        catch (ArgumentException ex)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["trigger"] = [ex.Message] });
+        }
+    });
+    app.MapGet("/automation-schedules", async (AutomationScheduleService schedules, CancellationToken ct) =>
+        Results.Ok(new { items = await schedules.ListAsync(ct) }));
+    app.MapGet("/automation-schedules/{id}", async (string id, AutomationScheduleService schedules, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_schedule_id" });
+        var schedule = await schedules.GetAsync(id, ct);
+        return schedule is null ? Results.NotFound() : Results.Ok(schedule);
+    });
+    app.MapPost("/automation-schedules", async (CreateAutomationSchedule input,
+        AutomationScheduleService schedules, CancellationToken ct) =>
+    {
+        try
+        {
+            var schedule = await schedules.CreateAsync(input.Name ?? "", input.JobId ?? "", input.Target ?? "",
+                input.PolicyName ?? "", input.IntervalSeconds, input.FirstOccurrenceAt, input.Enabled, ct);
+            return Results.Created($"/automation-schedules/{schedule.Id}", schedule);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["schedule"] = [ex.Message] });
+        }
+    });
+    app.MapPost("/automation-schedules/{id}/enabled", async (string id, SetAutomationScheduleEnabled input,
+        AutomationScheduleService schedules, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_automation_schedule_id" });
+        try { return Results.Ok(await schedules.SetEnabledAsync(id, input.Revision, input.Enabled, ct)); }
+        catch (AutomationScheduleConflictException ex)
+        { return Results.Conflict(new { error = "automation_schedule_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex)
+        { return Results.ValidationProblem(new Dictionary<string, string[]> { ["schedule"] = [ex.Message] }); }
+    });
+    app.MapPost("/automation-schedules/process-due", async (AutomationScheduleService schedules, CancellationToken ct) =>
+    {
+        var processed = await schedules.ProcessNextDueAsync(ct);
+        return processed is null ? Results.NoContent() : Results.Ok(processed);
     });
     app.MapGet("/jobs/{id}/automation-workflows", async (string id, AutomationWorkflowService workflows, CancellationToken ct) =>
     {
@@ -487,6 +674,17 @@ try
         try { return Results.Accepted($"/execution-requests/{id}", await executions.LaunchAsync(id, input.Revision, ct)); }
         catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
         catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["launch"] = [ex.Message] }); }
+    });
+    app.MapPost("/execution-requests/{id}/rerun", async (string id, RerunExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+        try
+        {
+            var rerun = await executions.RerunAsync(id, input.Revision, ct);
+            return Results.Accepted($"/execution-requests/{rerun.Id}", rerun);
+        }
+        catch (ExecutionRequestConflictException ex) { return Results.Conflict(new { error = "execution_request_conflict", detail = ex.Message }); }
+        catch (ArgumentException ex) { return Results.ValidationProblem(new Dictionary<string, string[]> { ["rerun"] = [ex.Message] }); }
     });
     app.MapGet("/jobs/{id}/runs", async (string id, ITestRunStore runs, CancellationToken ct) =>
     {
@@ -620,6 +818,11 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
 {
     services.AddSingleton(TimeProvider.System);
     services.AddSingleton<JobMetrics>();
+    var catalogDirectory = configuration["Quality:RegressionCatalog:Directory"]
+        ?? Path.Combine(Path.GetFullPath(configuration["Quality:Execution:RunDirectory"]
+            ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configuration["Quality:DataDirectory"] ?? "./data/jobs"))!, "executions")),
+            "regression-catalog");
+    services.AddSingleton<IRegressionCatalogStore>(new FileRegressionCatalogStore(catalogDirectory));
     var lease = configuration.GetSection("Quality:Lease");
     var leaseOptions = new JobLeaseOptions
     {
@@ -645,6 +848,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton<IJobStore>(sp => new MeteredJobStore(sp.GetRequiredService<PostgresJobStore>(), sp.GetRequiredService<JobMetrics>()));
         services.AddSingleton<IExecutionRequestStore, PostgresExecutionRequestStore>();
         services.AddSingleton<IAutomationWorkflowStore, PostgresAutomationWorkflowStore>();
+        services.AddSingleton<IAutomationScheduleStore, PostgresAutomationScheduleStore>();
     }
     else if (storeKind.Equals("File", StringComparison.OrdinalIgnoreCase))
     {
@@ -653,6 +857,8 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton<IExecutionRequestStore>(new FileExecutionRequestStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "execution-requests")));
         services.AddSingleton<IAutomationWorkflowStore>(new FileAutomationWorkflowStore(
             Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "automation-workflows")));
+        services.AddSingleton<IAutomationScheduleStore>(new FileAutomationScheduleStore(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataDirectory))!, "automation-schedules")));
     }
     else throw new ArgumentException("Quality__Store must be File or Postgres");
     var sourceKind = configuration["Quality:Requirements:Mode"] ?? "Stub";
@@ -671,20 +877,44 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     var planningKind = configuration["Quality:Planning:Mode"] ?? "Stub";
     if (planningKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))
         services.AddSingleton<ILlmProvider, StubLlmProvider>();
-    else if (planningKind.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
+    else if (planningKind.Equals("OpenAI", StringComparison.OrdinalIgnoreCase)
+        || planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
     {
         var section = configuration.GetSection("Quality:Planning");
-        var options = new PlanningOptions(section["ApiKey"] ?? configuration["OPENAI_API_KEY"] ?? "",
+        var environmentKey = planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+            ? configuration["ANTHROPIC_API_KEY"] : configuration["OPENAI_API_KEY"];
+        var configuredKey = section["ApiKey"];
+        var options = new PlanningOptions(string.IsNullOrWhiteSpace(configuredKey) ? environmentKey ?? "" : configuredKey,
             section["Model"] ?? "", section.GetValue("MaxAttempts", 3),
             section.GetValue("AttemptTimeoutSeconds", 20), section.GetValue("TotalTimeoutSeconds", 75),
             section.GetValue("MaxOutputTokens", 8192));
         options.Validate();
         services.AddSingleton(options);
         services.AddSingleton(new PlanningPrompt(section["AssetDirectory"] ?? AppContext.BaseDirectory));
-        services.AddHttpClient<ILlmProvider, OpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+        if (planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
+            services.AddHttpClient<ILlmProvider, AnthropicPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        else
+            services.AddHttpClient<ILlmProvider, OpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    }
+    else if (planningKind.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Planning");
+        var options = new AzureOpenAiPlanningOptions(
+            section["Azure:Endpoint"] ?? configuration["AZURE_OPENAI_ENDPOINT"] ?? "",
+            section["Azure:Deployment"] ?? section["Model"] ?? configuration["AZURE_OPENAI_DEPLOYMENT"] ?? "",
+            section["Azure:ApiVersion"] ?? configuration["AZURE_OPENAI_API_VERSION"] ?? "2025-04-01-preview",
+            section["Azure:ApiKey"] ?? configuration["AZURE_OPENAI_API_KEY"],
+            section.GetValue("MaxAttempts", 3), section.GetValue("AttemptTimeoutSeconds", 20),
+            section.GetValue("TotalTimeoutSeconds", 75), section.GetValue("MaxOutputTokens", 8192));
+        options.Validate();
+        services.AddSingleton(options);
+        services.AddSingleton(new PlanningPrompt(section["AssetDirectory"] ?? AppContext.BaseDirectory));
+        services.AddHttpClient<ILlmProvider, AzureOpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
     }
-    else throw new ArgumentException("Quality__Planning__Mode must be Stub or OpenAI");
+    else throw new ArgumentException("Quality__Planning__Mode must be Stub, OpenAI, Anthropic, or AzureOpenAI");
     var artifactMode = configuration["Quality:Artifacts:Mode"] ?? "Local";
     if (artifactMode.Equals("Local", StringComparison.OrdinalIgnoreCase))
         services.AddSingleton<IArtifactStore, StubArtifactStore>();
@@ -749,12 +979,21 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<ITestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<IReviewedTestExecutor>(sp => sp.GetRequiredService<PlaywrightTestExecutor>());
     services.AddSingleton<ExecutionRequestService>();
+    var trigger = configuration.GetSection("Quality:Automation:Triggers");
+    services.AddSingleton(new AutomationTriggerOptions
+    {
+        SigningSecret = trigger["SigningSecret"] ?? "",
+        MaximumAgeSeconds = trigger.GetValue("MaximumAgeSeconds", 300)
+    });
+    services.AddSingleton<AutomationTriggerVerifier>();
     services.AddSingleton<AutomationWorkflowService>();
+    services.AddSingleton<AutomationScheduleService>();
     services.AddSingleton<JobService>();
     if (runWorker)
     {
         services.AddHostedService<JobWorker>();
         services.AddHostedService<AutomationWorkflowWorker>();
+        services.AddHostedService<AutomationScheduleWorker>();
         services.AddHostedService<ExecutionWorker>();
     }
 }
@@ -766,12 +1005,17 @@ public sealed record ApplyRegressionProposalRequest(string? ReviewedPatchSha256)
 public sealed record CreateExecutionRequest(string? Target);
 public sealed record CreateAutonomousExecution(string? Target, string? PolicyName, string? IdempotencyKey = null);
 public sealed record ReviewAutomationWorkflow(long Revision, bool Approve, string? Reviewer);
+public sealed record CreateAutomationSchedule(string? Name, string? JobId, string? Target, string? PolicyName,
+    int IntervalSeconds, DateTimeOffset? FirstOccurrenceAt = null, bool Enabled = true);
+public sealed record SetAutomationScheduleEnabled(long Revision, bool Enabled);
 public sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? AllowedOrigins, string[]? AllowedActions,
     int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
     int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
     int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1,
-    MappingConfidence MinimumMappingConfidence = MappingConfidence.High);
+    MappingConfidence MinimumMappingConfidence = MappingConfidence.High, MutationGovernance? MutationGovernance = null,
+    int MaxInfrastructureReruns = 0, int MaxFlakyTestReruns = 0, string[]? FlakyTestIds = null);
 public sealed record UpdateExecutionManifest(long Revision, JsonElement Manifest);
 public sealed record ApproveExecutionRequest(long Revision, string? ReviewedManifestHash, string? Reviewer);
 public sealed record PrepareExecutionManifest(long Revision);
 public sealed record LaunchExecutionRequest(long Revision);
+public sealed record RerunExecutionRequest(long Revision);

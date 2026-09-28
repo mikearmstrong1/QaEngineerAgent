@@ -1,0 +1,36 @@
+{
+  "name": "local-governed-mutations",
+  "version": "v1",
+  "allowedOrigins": [
+    "http://127.0.0.1:5090"
+  ],
+  "allowedActions": [
+    "goto",
+    "click",
+    "fill",
+    "expectText",
+    "expectVisible",
+    "expectUrl"
+  ],
+  "maxTimeoutSeconds": 60,
+  "nonProduction": true,
+  "autoApprove": true,
+  "autoLaunch": false,
+  "canaryMaxAutoLaunches": 0,
+  "environment": "local",
+  "maxConcurrentAutoLaunches": 1,
+  "autoLaunchWindowSeconds": 3600,
+  "maxAutoLaunchesPerWindow": 1,
+  "minimumMappingConfidence": "High",
+  "mutationGovernance": {
+    "testIdentityReference": "qa-service-account",
+    "testDataProfileReference": "isolated-customer-profile",
+    "preconditionReferences": [
+      "empty-test-tenant"
+    ],
+    "cleanupActionReferences": [
+      "delete-created-customer"
+    ],
+    "cleanupVerificationReference": "customer-absent"
+  }
+}

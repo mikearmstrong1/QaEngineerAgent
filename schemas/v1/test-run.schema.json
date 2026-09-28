@@ -96,6 +96,18 @@
               "string",
               "null"
             ]
+          },
+          "verification": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "storedSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "checksumVerified": { "type": "boolean" },
+              "redactionVerified": { "type": "boolean" },
+              "verifiedAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["sourceSha256", "storedSha256", "checksumVerified", "redactionVerified", "verifiedAt"]
           }
         },
         "required": [
@@ -149,6 +161,22 @@
         },
         "required": ["testCaseId", "status", "classification", "durationMilliseconds"]
       }
+    },
+    "evidenceRequirements": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "requiredArtifactPatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "retentionDays": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        }
+      },
+      "required": ["requiredArtifactPatterns"]
     }
   },
   "required": [

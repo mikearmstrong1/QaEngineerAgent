@@ -9,6 +9,10 @@ if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var apiBase) || apiBase.Scheme 
     apiBase.UserInfo.Length != 0 || apiBase.Query.Length != 0 || apiBase.Fragment.Length != 0)
     throw new ArgumentException("Quality__CommandCenter__ApiUrl must be an HTTP(S) origin");
 var apiKey = builder.Configuration["Quality:CommandCenter:ApiKey"] ?? "";
+var planningMode = SafeDisplayValue(builder.Configuration["Quality:Planning:Mode"], "Stub");
+var configuredPlanningModel = builder.Configuration["Quality:Planning:Model"];
+var planningModel = SafeDisplayValue(string.IsNullOrWhiteSpace(configuredPlanningModel)
+    ? builder.Configuration["Quality:Planning:Azure:Deployment"] : configuredPlanningModel, "Not specified");
 builder.Services.AddHttpClient("quality", client =>
 {
     client.BaseAddress = apiBase;
@@ -34,6 +38,11 @@ app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = context =>
     context.Context.Response.Headers.CacheControl = "no-cache" });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "quality-command-center" }));
+app.MapGet("/bff/configuration", () => Results.Ok(new
+{
+    planningProvider = planningMode,
+    planningModel
+}));
 app.MapGet("/bff/status", async (IHttpClientFactory factory, CancellationToken ct) =>
     await ForwardAsync(factory, HttpMethod.Get, "/ready", null, ct));
 app.MapGet("/bff/jobs", async (int? limit, string? cursor, IHttpClientFactory factory, CancellationToken ct) =>
@@ -47,6 +56,19 @@ app.MapGet("/bff/jobs/{id}", async (string id, IHttpClientFactory factory, Cance
 {
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}", null, ct);
+});
+app.MapGet("/bff/jobs/{id}/lineage", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/lineage", null, ct);
+});
+app.MapGet("/bff/regression-suites/{suiteId}/versions/{versionId}/export", async (string suiteId, string versionId,
+    IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(suiteId, "^SUITE-[a-f0-9]{24}$") || !Regex.IsMatch(versionId, "^VERSION-[a-f0-9]{24}$"))
+        return Results.BadRequest(new { error = "invalid_regression_version" });
+    return await ForwardAsync(factory, HttpMethod.Get,
+        $"/regression-suites/{suiteId}/versions/{versionId}/export", null, ct);
 });
 app.MapGet("/bff/jobs/{id}/runs", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
 {
@@ -97,6 +119,13 @@ app.MapPost("/bff/jobs/{id}/autonomous-executions", async Task<IResult> (string 
     if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardExecutionAsync(factory, HttpMethod.Post, $"/jobs/{id}/autonomous-executions", JsonContent.Create(input), ct);
+});
+app.MapPost("/bff/execution-requests/{id}/rerun", async Task<IResult> (string id, HttpRequest request,
+    RerunExecution input, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (request.Headers["X-Command-Center"] != "1") return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_execution_request_id" });
+    return await ForwardAsync(factory, HttpMethod.Post, $"/execution-requests/{id}/rerun", JsonContent.Create(input), ct);
 });
 app.MapPost("/bff/automation-workflows/{id}/review", async Task<IResult> (string id, HttpRequest request,
     ReviewAutomationWorkflow input, IHttpClientFactory factory, CancellationToken ct) =>
@@ -211,6 +240,13 @@ app.MapPost("/bff/jobs", async Task<IResult> (HttpRequest request, SubmitRequest
 app.MapFallbackToFile("index.html");
 await app.RunAsync();
 
+static string SafeDisplayValue(string? value, string fallback)
+{
+    var normalized = value?.Trim();
+    if (string.IsNullOrWhiteSpace(normalized)) return fallback;
+    return normalized.Length <= 120 ? normalized : normalized[..120];
+}
+
 static async Task<IResult> ForwardAsync(IHttpClientFactory factory, HttpMethod method, string path, HttpContent? content, CancellationToken ct)
 {
     try
@@ -277,10 +313,14 @@ sealed record ExecutionPolicyInput(string? Name, string? Version, string[]? Allo
     int MaxTimeoutSeconds = 60, bool NonProduction = false, bool AutoApprove = false, bool AutoLaunch = false,
     int CanaryMaxAutoLaunches = 0, string? Environment = "default", int MaxConcurrentAutoLaunches = 1,
     int AutoLaunchWindowSeconds = 3600, int MaxAutoLaunchesPerWindow = 1,
-    string? MinimumMappingConfidence = "High");
+    string? MinimumMappingConfidence = "High", MutationGovernanceInput? MutationGovernance = null,
+    int MaxInfrastructureReruns = 0, int MaxFlakyTestReruns = 0, string[]? FlakyTestIds = null);
+sealed record MutationGovernanceInput(string? TestIdentityReference, string? TestDataProfileReference,
+    string[]? PreconditionReferences, string[]? CleanupActionReferences, string? CleanupVerificationReference);
 sealed record UpdateExecution(long Revision, System.Text.Json.JsonElement Manifest);
 sealed record PrepareExecution(long Revision);
 sealed record ApproveExecution(long Revision, string? ReviewedManifestHash, string? Reviewer);
 sealed record LaunchExecution(long Revision);
+sealed record RerunExecution(long Revision);
 
 public partial class Program { }

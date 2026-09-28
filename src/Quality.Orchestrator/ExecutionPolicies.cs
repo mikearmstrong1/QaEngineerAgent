@@ -23,7 +23,11 @@ public sealed record ExecutionPolicy(
     int MaxConcurrentAutoLaunches = 1,
     int AutoLaunchWindowSeconds = 3600,
     int MaxAutoLaunchesPerWindow = 1,
-    MappingConfidence MinimumMappingConfidence = MappingConfidence.High)
+    MappingConfidence MinimumMappingConfidence = MappingConfidence.High,
+    MutationGovernance? MutationGovernance = null,
+    int MaxInfrastructureReruns = 0,
+    int MaxFlakyTestReruns = 0,
+    string[]? FlakyTestIds = null)
 {
     public void ValidateManifest(ExecutionManifest manifest, bool requireAutoApproval = true)
     {
@@ -48,7 +52,11 @@ public sealed record ExecutionPolicy(
         if ((int)preparation.OverallConfidence < (int)MinimumMappingConfidence)
             throw new ArgumentException("Prepared manifest does not meet the policy confidence threshold");
         if (preparation.HasMutations)
-            throw new ArgumentException("Autonomous mutation requires declared test identity, data, preconditions, and cleanup");
+        {
+            if (MutationGovernance is null)
+                throw new ArgumentException("Autonomous mutation requires declared test identity, data, preconditions, and cleanup");
+            ExecutionPolicyCatalog.ValidateMutationGovernance(MutationGovernance);
+        }
     }
 
     public string ReviewerIdentity() => $"autonomous-policy:{Name}@{Version}";
@@ -74,12 +82,28 @@ public sealed record ExecutionPolicy(
         };
         if (MinimumMappingConfidence != MappingConfidence.High)
             value["minimumMappingConfidence"] = MinimumMappingConfidence;
+        if (MutationGovernance is not null)
+            value["mutationGovernance"] = MutationGovernance;
+        if (MaxInfrastructureReruns != 0) value["maxInfrastructureReruns"] = MaxInfrastructureReruns;
+        if (MaxFlakyTestReruns != 0) value["maxFlakyTestReruns"] = MaxFlakyTestReruns;
+        if (FlakyTestIds is { Length: > 0 }) value["flakyTestIds"] = FlakyTestIds.Order(StringComparer.Ordinal).ToArray();
         return JsonSerializer.Serialize(value, ContractJson.Options);
     }
 
     public string Fingerprint()
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson()))).ToLowerInvariant();
 }
+
+/// <summary>
+/// Secret-free references to operator-managed mutation controls. The referenced data and cleanup
+/// implementations remain behind server-side provider boundaries and are never embedded in policy JSON.
+/// </summary>
+public sealed record MutationGovernance(
+    string TestIdentityReference,
+    string TestDataProfileReference,
+    string[] PreconditionReferences,
+    string[] CleanupActionReferences,
+    string CleanupVerificationReference);
 
 public enum ExecutionPolicyStatus { Draft, Active, Disabled, Retired }
 
@@ -144,6 +168,17 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
         if (policy.MaxAutoLaunchesPerWindow is < 1 or > 1000) throw new ArgumentException("Window launch budget must be between 1 and 1000");
         if (!Enum.IsDefined(policy.MinimumMappingConfidence) || policy.MinimumMappingConfidence == MappingConfidence.None)
             throw new ArgumentException("Policy minimum mapping confidence must be Low, Medium, or High");
+        if (policy.MutationGovernance is { } governance) ValidateMutationGovernance(governance);
+        if (policy.MaxInfrastructureReruns is < 0 or > 5 || policy.MaxFlakyTestReruns is < 0 or > 5)
+            throw new ArgumentException("Automatic rerun budgets must be between 0 and 5");
+        var flakyIds = policy.FlakyTestIds ?? [];
+        foreach (var id in flakyIds) ValidateTestId(id);
+        if (flakyIds.Distinct(StringComparer.Ordinal).Count() != flakyIds.Length)
+            throw new ArgumentException("Declared flaky test IDs must be unique");
+        if (policy.MaxFlakyTestReruns > 0 && flakyIds.Length == 0)
+            throw new ArgumentException("Flaky-test reruns require declared flaky test IDs");
+        if (policy.MaxFlakyTestReruns == 0 && flakyIds.Length > 0)
+            throw new ArgumentException("Declared flaky test IDs require a nonzero flaky-test rerun budget");
         if (!policy.NonProduction && (policy.AutoApprove || policy.AutoLaunch))
             throw new ArgumentException("Only explicitly non-production policies may auto-approve or auto-launch");
         if (policy.AutoLaunch && !policy.AutoApprove)
@@ -175,11 +210,46 @@ public sealed class ExecutionPolicyCatalog(IEnumerable<ExecutionPolicy>? policie
             revision.Policy.AutoLaunchWindowSeconds,
             revision.Policy.MaxAutoLaunchesPerWindow,
             revision.Policy.MinimumMappingConfidence,
+            revision.Policy.MutationGovernance,
+            revision.Policy.MaxInfrastructureReruns,
+            revision.Policy.MaxFlakyTestReruns,
+            FlakyTestIds = revision.Policy.FlakyTestIds?.Order(StringComparer.Ordinal).ToArray() ?? [],
             revision.Policy.MaxTimeoutSeconds,
             AllowedOrigins = revision.Policy.AllowedOrigins.Select(ExecutionManifest.ValidateOrigin).Order().ToArray(),
             AllowedActions = revision.Policy.AllowedActions.Order().ToArray(),
             revision.Fingerprint
         };
+
+    internal static void ValidateMutationGovernance(MutationGovernance governance)
+    {
+        ValidateReference(governance.TestIdentityReference, "Test identity");
+        ValidateReference(governance.TestDataProfileReference, "Test data profile");
+        ValidateReferences(governance.PreconditionReferences, "Precondition");
+        ValidateReferences(governance.CleanupActionReferences, "Cleanup action");
+        ValidateReference(governance.CleanupVerificationReference, "Cleanup verification");
+    }
+
+    private static void ValidateReferences(string[]? references, string label)
+    {
+        if (references is not { Length: > 0 }) throw new ArgumentException($"{label} references require at least one named reference");
+        foreach (var reference in references) ValidateReference(reference, label);
+        if (references.Distinct(StringComparer.Ordinal).Count() != references.Length)
+            throw new ArgumentException($"{label} references must be unique");
+    }
+
+    private static void ValidateReference(string? reference, string label)
+    {
+        if (string.IsNullOrWhiteSpace(reference) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(reference, "^[a-z0-9][a-z0-9._-]{0,99}$"))
+            throw new ArgumentException($"{label} reference must be a lowercase named reference without secret values");
+    }
+
+    private static void ValidateTestId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"))
+            throw new ArgumentException("Declared flaky test IDs must be secret-free identifiers");
+    }
 
     public IReadOnlyList<object> Describe() => Snapshot()
         .Select(policy => Describe(new(policy, ExecutionPolicyStatus.Active, DateTimeOffset.MinValue, DateTimeOffset.MinValue)))

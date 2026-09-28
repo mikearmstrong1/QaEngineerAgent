@@ -1,11 +1,14 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Quality.Domain;
 namespace Quality.Orchestrator;
 
 public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore artifacts)
 {
-    public async Task<TestRun> PublishAsync(string runId, CancellationToken ct)
+    public async Task<TestRun> PublishAsync(string runId, CancellationToken ct,
+        EvidencePublicationRequirements? requirements = null)
     {
         var run = await runs.GetAsync(runId, ct) ?? throw new ArgumentException("Run not found");
         if (run.FinishedAt is null || run.Status == "Running") throw new ArgumentException("Only finished runs can be published");
@@ -13,8 +16,10 @@ public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore arti
         // Serialize publishers across processes, so partial retries cannot overwrite each other's progress.
         using var gate = new FileStream(Path.Combine(directory, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         run = (await runs.GetAsync(runId, ct))!;
+        requirements ??= run.EvidenceRequirements;
+        ValidateRequirements(run, requirements);
         var uploaded = (run.StoredArtifacts ?? []).ToDictionary(a => a.LocalKey, StringComparer.Ordinal);
-        run = run with { ArtifactUploadStatus = "Uploading" };
+        run = run with { ArtifactUploadStatus = "Uploading", EvidenceRequirements = requirements };
         await runs.SaveAsync(run, ct);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromMinutes(5));
@@ -38,11 +43,16 @@ public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore arti
                 await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous);
                 var hash = Convert.ToHexString(await SHA256.HashDataAsync(source, timeout.Token)).ToLowerInvariant();
                 source.Position = 0;
+                var redactionStatus = await VerifyRedactionAsync(source, path, timeout.Token);
+                source.Position = 0;
                 var key = $"{MinioArtifactStore.Prefix}runs/{runId}/{hash}/{relative}";
                 // Re-PUT the same content-addressed key on retry: safe after a lost acknowledgement or expired object.
                 var handle = await artifacts.PutAsync(key, source, ContentType(path), timeout.Token);
                 if (handle.Sha256 != hash || handle.Length != source.Length) throw new InvalidDataException("Artifact changed during upload");
-                uploaded[localKey] = new(localKey, handle.Key, handle.Bucket, handle.ContentType, handle.Length, handle.Sha256, handle.Provider);
+                var verification = new ArtifactVerification(hash, handle.Sha256, handle.Sha256 == hash,
+                    redactionStatus, DateTimeOffset.UtcNow);
+                uploaded[localKey] = new(localKey, handle.Key, handle.Bucket, handle.ContentType, handle.Length,
+                    handle.Sha256, handle.Provider, verification);
                 run = run with { StoredArtifacts = uploaded.Values.OrderBy(a => a.LocalKey, StringComparer.Ordinal).ToArray() };
                 await runs.SaveAsync(run, timeout.Token);
             }
@@ -57,6 +67,47 @@ public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore arti
         return run;
     }
 
+    private void ValidateRequirements(TestRun run, EvidencePublicationRequirements? requirements)
+    {
+        if (requirements is null) return;
+        if (requirements.RetentionDays is < 1 or > 3650)
+            throw new ArgumentException("Evidence retention must be 1-3650 days");
+        if (requirements.RequiredArtifactPatterns is null || requirements.RequiredArtifactPatterns.Length > 20
+            || requirements.RequiredArtifactPatterns.Any(pattern => string.IsNullOrWhiteSpace(pattern)
+                || pattern.Length > 200 || pattern.Any(char.IsControl) || pattern.Contains('/') || pattern.Contains('\\')))
+            throw new ArgumentException("Required artifact patterns must be 1-200 character file-name patterns");
+        foreach (var pattern in requirements.RequiredArtifactPatterns)
+        {
+            var regex = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+            if (!run.ArtifactKeys.Any(key => Regex.IsMatch(Path.GetFileName(key), regex, RegexOptions.CultureInvariant)))
+                throw new InvalidDataException($"Required evidence is missing: {pattern}");
+        }
+        if (requirements.RetentionDays is { } days && artifacts is IRemoteArtifactStore remote
+            && (!remote.Info.RetentionManaged || remote.Info.RetentionDays < days))
+            throw new InvalidOperationException("Artifact provider does not satisfy the evidence retention requirement");
+    }
+
+    private static async Task<string> VerifyRedactionAsync(Stream source, string path, CancellationToken ct)
+    {
+        var pattern = new Regex(
+            "(?im)(authorization|proxy-authorization|cookie|set-cookie)\\s*[:=]|(api[_-]?key|access[_-]?token|client[_-]?secret)\\s*[:=]|https?://[^\\s/@:]+:[^\\s/@]+@|[?&](token|key|secret|password)=[^&#\\s]+",
+            RegexOptions.CultureInvariant);
+        var buffer = new byte[64 * 1024];
+        var carry = "";
+        int read;
+        // Binary evidence is scanned as bounded UTF-8 chunks for embedded metadata/URLs. This is not OCR.
+        while ((read = await source.ReadAsync(buffer, ct)) != 0)
+        {
+            var text = carry + Encoding.UTF8.GetString(buffer, 0, read);
+            if (pattern.IsMatch(text)) throw new InvalidDataException("Artifact failed redaction verification");
+            carry = text.Length <= 512 ? text : text[^512..];
+        }
+        return IsText(path) ? "TextScanPassed" : "BinaryMetadataScanPassed";
+    }
+
+    private static bool IsText(string path) => Path.GetExtension(path).ToLowerInvariant()
+        is ".json" or ".html" or ".md" or ".log" or ".txt" or ".cjs" or ".js";
+
     public async Task<FailureAnalysis> AssociateFailureAsync(FailureAnalysis analysis, CancellationToken ct)
     {
         if (analysis.SchemaVersion != "1.0" || string.IsNullOrWhiteSpace(analysis.Classification) || string.IsNullOrWhiteSpace(analysis.Summary)
@@ -69,6 +120,10 @@ public sealed class RunArtifactPublisher(ITestRunStore runs, IArtifactStore arti
         var references = analysis.EvidenceArtifactKeys.Select(key => (run.StoredArtifacts ?? [])
             .SingleOrDefault(a => a.LocalKey == key || a.ObjectKey == key)
             ?? throw new ArgumentException("Failure evidence must be an uploaded artifact of this run")).Distinct().ToArray();
+        if (run.ArtifactUploadStatus != "Uploaded" || references.Any(reference => reference.Verification is not { ChecksumVerified: true }
+            || reference.Verification.SourceSha256 != reference.Verification.StoredSha256
+            || reference.Verification.RedactionStatus is not ("TextScanPassed" or "BinaryMetadataScanPassed")))
+            throw new ArgumentException("Failure evidence must pass checksum and redaction verification");
         var associated = analysis with { EvidenceArtifactKeys = references.Select(a => a.ObjectKey).ToArray(), EvidenceArtifacts = references };
         var directory = Path.Combine(runs.DirectoryFor(run.Id), "analyses");
         Directory.CreateDirectory(directory);

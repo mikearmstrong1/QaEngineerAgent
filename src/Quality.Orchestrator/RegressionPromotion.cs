@@ -17,6 +17,11 @@ public sealed class RegressionPromotion(ITestRunStore runs, ISourceControl sourc
             throw new ArgumentException("Synthetic plans cannot be promoted into regression coverage");
         if (run.Status != "Passed" || run.FinishedAt is null || run.TestPlanId != job.TestPlan.Id)
             throw new ArgumentException("Only a passing run of this plan can be promoted");
+        if (run.ArtifactUploadStatus is not null && (run.ArtifactUploadStatus != "Uploaded"
+            || (run.StoredArtifacts ?? []).Any(artifact => artifact.Verification is not { ChecksumVerified: true }
+                || artifact.Verification.SourceSha256 != artifact.Verification.StoredSha256
+                || artifact.Verification.RedactionStatus is not ("TextScanPassed" or "BinaryMetadataScanPassed"))))
+            throw new ArgumentException("Required evidence must pass checksum and redaction verification before promotion");
         var path = Path.Combine(runs.DirectoryFor(run.Id), "manifest.json");
         if (new FileInfo(path).Length > 1024 * 1024) throw new ArgumentException("Manifest exceeds the promotion limit");
         var bytes = await File.ReadAllBytesAsync(path, ct);

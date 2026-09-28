@@ -14,11 +14,20 @@
   </header>
   <main>
     <section class="hero">
-      <div><p class="eyebrow">QUALITY WORKSPACE</p><h1>Turn Jira acceptance criteria into reviewed test coverage.</h1><p class="lede">Plan tests, review execution evidence, classify failures, and promote passing coverage into the configured test repository. Existing CLI commands remain available for automation and terminal workflows.</p></div>
+      <div><p class="eyebrow">QUALITY WORKSPACE</p><h1>Turn Jira acceptance criteria into reviewed test coverage.</h1><p class="lede">Plan tests, review execution evidence, classify failures, and promote passing coverage into the configured test repository. Existing CLI commands remain available for automation and terminal workflows.</p>
+        <ol class="workflow-guide" aria-label="First-run workflow">
+          <li><strong>Generate</strong><span>Enter a Jira key to create a proposed test plan.</span></li>
+          <li><strong>Review</strong><span>Check acceptance-criteria coverage, assumptions, and gaps.</span></li>
+          <li><strong>Execute</strong><span>Review and approve browser test instructions: the target page, test cases, actions, expected results, and timeout.</span></li>
+          <li><strong>Verify</strong><span>Inspect evidence, classify failures, and promote passing coverage.</span></li>
+        </ol>
+      </div>
       <form id="submit-form" class="submit-card">
+        <p class="eyebrow">START A PLAN</p>
         <label for="jira-key">Jira issue key</label>
         <div class="input-row"><input id="jira-key" name="jiraKey" placeholder="KAN-4" autocomplete="off" required><button id="generate-plan" type="submit">Generate plan</button></div>
-        <p id="submit-message" class="form-message">Uses the configured Jira and OpenAI providers.</p>
+        <p id="planner-config" class="planner-config" aria-live="polite">Checking configured planning provider…</p>
+        <p id="submit-message" class="form-message">The issue is read from Jira and sent to the configured planner. Review the proposal before execution.</p>
       </form>
     </section>
     <section class="workspace">
@@ -38,6 +47,6 @@
     <div id="artifact-preview" class="artifact-preview"></div>
     <div class="artifact-dialog-actions"><a id="artifact-save" class="evidence-save" href="#" download>Save artifact</a><button id="artifact-done" type="button">Done</button></div>
   </dialog>
-  <script src="/app.js?v=policy-manager-1" defer></script>
+  <script src="/app.js?v=lineage-1" defer></script>
 </body>
 </html>

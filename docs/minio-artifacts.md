@@ -30,11 +30,15 @@ dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll publish-artifacts --r
 dotnet src/Quality.Api/bin/Release/net10.0/Quality.Api.dll get-run --id RUN_ID
 ```
 
-`artifactKeys` retain their local paths. `storedArtifacts` contains each local key, object key, bucket, provider, content type, byte length and SHA-256 digest. `artifactUploadStatus` is separate: `Uploading`, `Uploaded`, or `Failed` (null before publishing). A failed upload leaves the test status and successful associations intact. `execute` exits 1 when storage fails, even if the test status is `Passed`; `publish-artifacts` exits 0 only after all listed artifacts are uploaded.
+`artifactKeys` retain their local paths. `storedArtifacts` contains each local key, object key, bucket, provider, content type, byte length, SHA-256 digest, and verification record. Verification binds the source and stored checksums and records either a text scan or binary-metadata scan before the object is exposed or associated as evidence. Authorization/cookie headers, credential-bearing URLs, and common token/secret assignments fail closed. Binary scanning is not OCR; deployments that can capture secrets as pixels must add image redaction before publication.
+
+`artifactUploadStatus` is separate: `Uploading`, `Uploaded`, or `Failed` (null before publishing). A failed upload leaves the test status and successful associations intact. `execute` exits 1 when storage fails, even if the test status is `Passed`; `publish-artifacts` exits 0 only after all listed artifacts are uploaded and verified. Readers, failure-evidence association, and regression promotion reject attempted publications that are incomplete or lack verification.
+
+Runs may persist `evidenceRequirements` with required file-name patterns and a retention duration. Publication fails closed when required evidence is missing or the configured remote store does not provide the minimum managed retention. This run-level contract is the extension point for immutable execution-policy snapshots.
 
 Each remote key has the form `quality-system/runs/RUN_ID/SHA256/relative-path`. Retrying re-uploads the same bytes to the same key, covering lost acknowledgements and expired objects. It does not create duplicate association entries. Changed content gets a different key. A per-run file lock serializes publishers. Failure after an object upload but before saving its association is recoverable by rerunning the upload command.
 
-The publisher uploads files listed in the saved run, including traces, screenshots, logs, JSON reports, manifest and generated test inputs. It rejects traversal and symbolic links in evidence paths. MIME types are assigned by extension, with `application/octet-stream` as fallback. Uploads retain any sensitive data already present in browser evidence, including form values; configure the bucket and its access accordingly.
+The publisher uploads files listed in the saved run, including traces, screenshots, logs, JSON reports, manifest and generated test inputs. It rejects traversal and symbolic links in evidence paths. MIME types are assigned by extension, with `application/octet-stream` as fallback. The bounded scanner rejects recognizable secrets in text and embedded binary metadata before upload.
 
 The S3 SDK sends a SHA-256 checksum and `sha256` object metadata. The store's `OpenReadAsync` verifies downloaded bytes against that metadata before returning a temporary stream; missing or mismatched checksums fail. The returned stream deletes its temporary file when disposed. An ETag is not treated as a checksum.
 
@@ -60,7 +64,7 @@ The analysis must have a new 32-character GUID ID, a valid `testRunId`, classifi
 | `MaxArtifactBytes` | 128 MiB; allowed 1 byte–1 GiB |
 | `TimeoutSeconds` | 60 per store operation; allowed 1–300 |
 
-An upload uses a bounded temporary disk snapshot instead of buffering an entire artifact in memory. The SDK allows up to two retries within the operation deadline. A run publication has a five-minute overall deadline. Raw provider error text is not saved in the run. Run status and partial upload associations remain durable across a failed attempt; restart recovery for abandoned `Uploading` states is manual via `publish-artifacts`.
+An upload uses a bounded temporary disk snapshot instead of buffering an entire artifact in memory. The SDK allows up to two retries within the operation deadline. A run publication has a five-minute overall deadline. Raw provider error text is not saved in the run. Run status and partial upload associations remain durable across a failed attempt. Re-running `publish-artifacts` resumes `Uploading` or `Failed` runs from their content-addressed checkpoints without rerunning tests. Autonomous workflows also reconcile these states in their evidence-publication phase when a publisher is configured.
 
 ## Compose
 

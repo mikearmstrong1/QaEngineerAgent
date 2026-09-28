@@ -201,12 +201,85 @@ public sealed class ArtifactTests
             Assert.Equal("Failed", complete.Status);
             Assert.Equal("Uploaded", complete.ArtifactUploadStatus);
             Assert.Equal(2, complete.StoredArtifacts!.Length);
+            Assert.All(complete.StoredArtifacts, artifact =>
+            {
+                Assert.True(artifact.Verification!.ChecksumVerified);
+                Assert.Equal(artifact.Verification.SourceSha256, artifact.Verification.StoredSha256);
+                Assert.Equal("TextScanPassed", artifact.Verification.RedactionStatus);
+            });
             var analysis = new FailureAnalysis(Guid.NewGuid().ToString("N"), id, "Unclassified", "Review required", [id + "/process.log"], 0.5, true);
             var linked = await publisher.AssociateFailureAsync(analysis, default);
             Assert.StartsWith("quality-system/runs/", Assert.Single(linked.EvidenceArtifactKeys));
             Assert.Single(linked.EvidenceArtifacts!);
             Assert.True(File.Exists(Path.Combine(runs.DirectoryFor(id), "analyses", analysis.Id + ".json")));
             await Assert.ThrowsAsync<ArgumentException>(() => publisher.AssociateFailureAsync(analysis with { Id = Guid.NewGuid().ToString("N"), EvidenceArtifactKeys = ["another-run/file"] }, default));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+    [Fact]
+    public async Task AbandonedUploadingStateResumesFromCheckpointWithoutExecution()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-artifact-recovery-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runs = new FileTestRunStore(root);
+            var id = Guid.NewGuid().ToString("N");
+            var first = id + "/report.json";
+            var second = id + "/process.log";
+            await runs.SaveAsync(new(id, "plan", "Passed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+                [first, second], "test", ArtifactUploadStatus: "Uploading"), default);
+            await File.WriteAllTextAsync(Path.Combine(runs.DirectoryFor(id), "report.json"), "{}");
+            await File.WriteAllTextAsync(Path.Combine(runs.DirectoryFor(id), "process.log"), "clean");
+            var store = new FlakyStore { Fail = false };
+            var publisher = new RunArtifactPublisher(runs, store);
+            var recovered = await publisher.PublishAsync(id, default,
+                new EvidencePublicationRequirements(["report.json", "*.log"]));
+            Assert.Equal("Passed", recovered.Status);
+            Assert.Equal("Uploaded", recovered.ArtifactUploadStatus);
+            Assert.Equal(2, recovered.StoredArtifacts!.Length);
+            Assert.Equal(["report.json", "*.log"], recovered.EvidenceRequirements!.RequiredArtifactPatterns);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+    [Theory]
+    [InlineData("Authorization: Bearer private")]
+    [InlineData("https://example.test/path?token=private")]
+    [InlineData("Cookie=session=private")]
+    public async Task SensitiveTextFailsClosedBeforeExposure(string content)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-artifact-redaction-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runs = new FileTestRunStore(root);
+            var id = Guid.NewGuid().ToString("N");
+            var key = id + "/process.log";
+            await runs.SaveAsync(new(id, "plan", "Failed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [key], "test"), default);
+            await File.WriteAllTextAsync(Path.Combine(runs.DirectoryFor(id), "process.log"), content);
+            var published = await new RunArtifactPublisher(runs, new FlakyStore { Fail = false }).PublishAsync(id, default);
+            Assert.Equal("Failed", published.ArtifactUploadStatus);
+            Assert.Empty(published.StoredArtifacts ?? []);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new ArtifactContentReader(runs, new StubArtifactStore()).OpenAsync(id, key, default));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+    [Fact]
+    public async Task BinaryMetadataScanAndRequiredEvidenceAreRecorded()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-artifact-binary-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runs = new FileTestRunStore(root);
+            var id = Guid.NewGuid().ToString("N");
+            var key = id + "/screenshot.png";
+            await runs.SaveAsync(new(id, "plan", "Passed", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [key], "test"), default);
+            await File.WriteAllBytesAsync(Path.Combine(runs.DirectoryFor(id), "screenshot.png"), [137, 80, 78, 71, 0, 1]);
+            var publisher = new RunArtifactPublisher(runs, new FlakyStore { Fail = false });
+            await Assert.ThrowsAsync<InvalidDataException>(() => publisher.PublishAsync(id, default,
+                new EvidencePublicationRequirements(["trace.zip"])));
+            var published = await publisher.PublishAsync(id, default,
+                new EvidencePublicationRequirements(["*.png"]));
+            Assert.Equal("BinaryMetadataScanPassed", Assert.Single(published.StoredArtifacts!).Verification!.RedactionStatus);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

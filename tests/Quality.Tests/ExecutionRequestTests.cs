@@ -252,6 +252,55 @@ public sealed class ExecutionRequestTests
     }
 
     [Fact]
+    public async Task InfrastructureRerunReusesExactAuthorityAndEscalatesExhaustionOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quality-execution-rerun-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var requestStore = new FileExecutionRequestStore(Path.Combine(root, "requests"));
+            var jobStore = new FileJobStore(Path.Combine(root, "jobs"), TimeProvider.System);
+            await jobStore.InitializeAsync(default);
+            var policy = new ExecutionPolicy("rerun-test", "v1", ["http://127.0.0.1:8000"],
+                ["goto", "expectVisible"], NonProduction: true, AutoApprove: true,
+                MaxInfrastructureReruns: 1);
+            var now = DateTimeOffset.UtcNow;
+            var manifest = "{\"exact\":true}";
+            var hash = ExecutionManifest.Hash(Encoding.UTF8.GetBytes(manifest));
+            var source = new ExecutionRequest(Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), "plan",
+                "http://127.0.0.1:8000/", ExecutionRequestStatus.InfrastructureFailed, manifest, hash, 0, now, now,
+                new(hash, policy.ReviewerIdentity(), now), Error: "runner_unavailable", AutomationPolicy: policy.Name,
+                AutomationPolicyVersion: policy.Version, AutomationPolicyHash: policy.Fingerprint(),
+                AutomationPolicySnapshot: policy.CanonicalJson(), AutomationEnvironment: policy.Environment);
+            await requestStore.CreateAsync(source, default);
+            var service = new ExecutionRequestService(requestStore, jobStore, new CapturingExecutor(),
+                new(root, ["http://127.0.0.1:8000"]), TimeProvider.System,
+                policies: new ExecutionPolicyCatalog([policy with { MaxInfrastructureReruns = 5 }]));
+
+            var rerun = await service.RerunAsync(source.Id, source.Revision, default);
+
+            Assert.Equal(ExecutionRequestStatus.Queued, rerun.Status);
+            Assert.Equal(source.Id, rerun.ParentExecutionRequestId);
+            Assert.Equal(source.Id, rerun.RootExecutionRequestId);
+            Assert.Equal(1, rerun.RerunAttempt);
+            Assert.Equal(source.ManifestJson, rerun.ManifestJson);
+            Assert.Equal(source.ManifestHash, rerun.ManifestHash);
+            Assert.Equal(source.AutomationPolicySnapshot, rerun.AutomationPolicySnapshot);
+            Assert.Equal(source.AutomationPolicyHash, rerun.AutomationPolicyHash);
+            rerun = await requestStore.SaveAsync(rerun with { Status = ExecutionRequestStatus.InfrastructureFailed,
+                Error = "runner_unavailable" }, rerun.Revision, default);
+
+            var escalated = await service.RerunAsync(rerun.Id, rerun.Revision, default);
+            Assert.Equal("rerun_budget_exhausted", escalated.Error);
+            Assert.NotNull(escalated.RerunEscalatedAt);
+            var repeated = await service.RerunAsync(escalated.Id, escalated.Revision, default);
+            Assert.Equal(escalated.Revision, repeated.Revision);
+            Assert.Equal(escalated.RerunEscalatedAt, repeated.RerunEscalatedAt);
+            Assert.Equal(2, (await requestStore.ListByJobAsync(source.JobId, default)).Count);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void PreparationIsDeterministicAndFailsClosedForAmbiguousControls()
     {
         var plan = new TestPlan("plan-ambiguous", "requirement-1", "Plan",
@@ -287,7 +336,15 @@ public sealed class ExecutionRequestTests
         Assert.True(preparation.Complete);
         Assert.True(preparation.HasMutations);
         Assert.Throws<ArgumentException>(() => policy.ValidatePreparation(preparation));
+
+        var governed = policy with { MutationGovernance = MutationControls() };
+        ExecutionPolicyCatalog.ValidatePolicy(governed);
+        governed.ValidatePreparation(preparation);
     }
+
+    private static MutationGovernance MutationControls() => new(
+        "qa-service-account", "isolated-customer-profile", ["empty-test-tenant"],
+        ["delete-created-customer"], "customer-absent");
 
     [Fact]
     public void DestructiveWordingIsADeclaredGapEvenWhenAControlMatches()

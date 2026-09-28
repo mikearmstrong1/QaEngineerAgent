@@ -13,7 +13,8 @@ public sealed class ExecutionRequestService(
     TimeProvider clock,
     RunArtifactPublisher? publisher = null,
     IArtifactStore? artifactStore = null,
-    ExecutionPolicyCatalog? policies = null)
+    ExecutionPolicyCatalog? policies = null,
+    ITestRunStore? runs = null)
 {
     private static readonly JsonSerializerOptions StrictJson = new(ContractJson.Options)
     {
@@ -197,6 +198,71 @@ public sealed class ExecutionRequestService(
             UpdatedAt = clock.GetUtcNow(),
             Error = null
         }, revision, ct);
+    }
+
+    public async Task<ExecutionRequest> RerunAsync(string id, long revision, CancellationToken ct)
+    {
+        var source = await RequiredAsync(id, ct);
+        if (source.Revision != revision) throw new ExecutionRequestConflictException();
+        if (source.Status is not (ExecutionRequestStatus.InfrastructureFailed or ExecutionRequestStatus.Failed or ExecutionRequestStatus.TimedOut))
+            throw new ArgumentException("Only a failed execution can be rerun");
+        if (source.AutomationPolicySnapshot is null || source.AutomationPolicyHash is null || source.Approval?.ManifestHash != source.ManifestHash)
+            throw new ArgumentException("Reruns require an exact approved automation policy and manifest snapshot");
+        var strict = new JsonSerializerOptions(ContractJson.Options) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+        var policy = JsonSerializer.Deserialize<ExecutionPolicy>(source.AutomationPolicySnapshot, strict)
+            ?? throw new InvalidOperationException("Persisted automation policy snapshot is invalid");
+        ExecutionPolicyCatalog.ValidatePolicy(policy);
+        if (policy.Fingerprint() != source.AutomationPolicyHash)
+            throw new InvalidOperationException("Persisted automation policy snapshot integrity check failed");
+        var rootId = source.RootExecutionRequestId ?? source.Id;
+        var lineage = (await requests.ListByJobAsync(source.JobId, ct))
+            .Where(item => (item.RootExecutionRequestId ?? item.Id) == rootId).ToArray();
+        var nextAttempt = lineage.Max(item => item.RerunAttempt) + 1;
+        int maximum;
+        if (source.Status == ExecutionRequestStatus.InfrastructureFailed)
+            maximum = policy.MaxInfrastructureReruns;
+        else
+        {
+            if (source.RunId is null || runs is null || await runs.GetAsync(source.RunId, ct) is not { TestResults: { Length: > 0 } results })
+                throw new ArgumentException("Failed-test reruns require persisted per-test results");
+            var failedIds = results.Where(result => result.Status != "Passed").Select(result => result.TestCaseId)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            var declared = new HashSet<string>(policy.FlakyTestIds ?? [], StringComparer.Ordinal);
+            if (failedIds.Length == 0 || failedIds.Any(id => !declared.Contains(id)))
+                throw new ArgumentException("Failure includes a test not declared flaky by the exact policy snapshot");
+            maximum = policy.MaxFlakyTestReruns;
+        }
+        if (nextAttempt > maximum)
+        {
+            if (source.RerunEscalatedAt is not null) return source;
+            return await requests.SaveAsync(source with { RerunEscalatedAt = clock.GetUtcNow(),
+                Error = "rerun_budget_exhausted", UpdatedAt = clock.GetUtcNow() }, revision, ct);
+        }
+        var childId = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{rootId}:{nextAttempt}"))).ToLowerInvariant()[..32];
+        if (await requests.GetAsync(childId, ct) is { } existing) return existing;
+        var now = clock.GetUtcNow();
+        var rerun = source with
+        {
+            Id = childId,
+            Status = ExecutionRequestStatus.Queued,
+            Revision = 0,
+            CreatedAt = now,
+            UpdatedAt = now,
+            RunId = null,
+            Error = null,
+            LeaseToken = null,
+            LeaseUntil = null,
+            Attempts = 0,
+            AutoLaunchReservedAt = null,
+            ParentExecutionRequestId = source.Id,
+            RootExecutionRequestId = rootId,
+            RerunAttempt = nextAttempt,
+            RerunEscalatedAt = null
+        };
+        try { await requests.CreateAsync(rerun, ct); }
+        catch (ExecutionRequestConflictException) { return await RequiredAsync(childId, ct); }
+        return rerun;
     }
 
     public async Task<ExecutionRequest?> ProcessNextAsync(CancellationToken ct)
