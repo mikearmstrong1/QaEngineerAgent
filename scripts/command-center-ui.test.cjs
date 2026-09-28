@@ -15,6 +15,8 @@ test('first-run workflow explains the review path', () => {
   for (const step of ['Generate', 'Review', 'Execute', 'Verify'])
     assert.match(html, new RegExp(`<strong>${step}</strong>`));
   assert.doesNotMatch(html, /Jira and OpenAI providers/);
+  assert.match(html, /browser test instructions: the target page, test cases, actions, expected results, and timeout/);
+  assert.doesNotMatch(html, /approve a manifest/);
 });
 
 test('planner configuration displays only provider and model metadata', () => {
@@ -42,7 +44,7 @@ test('evidence uses an explicit accessible disclosure control', () => {
   assert.match(source, /aria-controls/);
 });
 
-test('manifest review leads with readable browser instructions', () => {
+test('technical manifest review leads with readable browser instructions', () => {
   assert.match(source, /function manifestReview/);
   assert.match(source, /Browser instructions/);
   assert.match(source, /Advanced: edit exact JSON/);
