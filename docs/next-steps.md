@@ -79,7 +79,7 @@ Durable file-backed `RegressionSuite`, `RegressionCase`, and immutable `Regressi
 
 ### 7. Deliver story-level traceability and operational SLOs — export foundation implemented
 
-Catalog services now derive story/criterion/test/manifest/run lineage, deterministic hashed exports, execution coverage, and pass metrics from persisted versions. Add the Command Center lineage view plus durable queue/workflow metrics, escalation counts, automation yield, false-escalation sampling, budget usage, and end-to-end latency.
+Catalog services now derive story/criterion/test/manifest/run lineage, deterministic hashed exports, execution coverage, and pass metrics from persisted versions. The API and Command Center now compose persisted source revision, acceptance criteria, planned tests, execution requests/reruns, verified evidence, and catalog version history; they flag missing criterion coverage and stale source revisions and expose hashed version exports. Continue with durable queue/workflow metrics, escalation counts, automation yield, false-escalation sampling, budget usage, and end-to-end latency.
 
 **Exit gate:** every displayed status is derived from persisted lineage; exports verify hashes and identify gaps/stale source revisions; dashboards distinguish application, test, infrastructure, policy, and review waits; a release run proves the complete non-production story-to-PR path with human review disabled except for deliberately injected escalation cases.
 

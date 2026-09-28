@@ -10,7 +10,7 @@ You need:
 
 - Docker Desktop, with Docker Compose v2
 - A Jira Cloud account and API token
-- An OpenAI API key
+- An OpenAI or Anthropic API key, or Azure OpenAI credentials
 - This repository checked out locally
 
 Run every command below from the repository root.
@@ -47,6 +47,8 @@ QUALITY_PLANNING_TOTAL_TIMEOUT_SECONDS=75
 # Absolute path to the Git repository that owns the regression tests.
 QUALITY_REGRESSION_REPOSITORY=/absolute/path/to/your-test-repository
 ```
+
+For Anthropic, set `QUALITY_PLANNING_MODE=Anthropic`, select a supported Claude model, and use `ANTHROPIC_API_KEY` instead of `OPENAI_API_KEY`.
 
 `JIRA_ACCEPTANCE_FIELD` is optional when the Jira description contains a top-level `AC` or `Acceptance Criteria` heading. Keep `.env` private; Git ignores it.
 

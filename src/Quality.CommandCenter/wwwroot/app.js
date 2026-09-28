@@ -6,7 +6,7 @@ async function request(path,options={}){const response=await fetch(path,{...opti
 async function health(){try{await request('/bff/status');$('health-dot').className='dot ok';$('health-text').textContent='Services ready'}catch{$('health-dot').className='dot error';$('health-text').textContent='API unavailable'}}
 async function loadJobs(append=false){try{const suffix=append&&state.cursor?`&cursor=${encodeURIComponent(state.cursor)}`:'';const data=await request(`/bff/jobs?limit=20${suffix}`);state.jobs=append?[...state.jobs,...data.items]:data.items;state.cursor=data.nextCursor;renderJobs();$('load-more').classList.toggle('hidden',!state.cursor)}catch(error){$('jobs').innerHTML=`<div class="notice gap"></div>`;$('jobs').firstChild.textContent=error.message}}
 function renderJobs(){$('jobs').replaceChildren(...state.jobs.map(job=>{const button=document.createElement('button');button.className=`job-card ${state.selected===job.id?'active':''}`;const top=document.createElement('div');top.className='job-top';const key=document.createElement('span');key.className='job-key';key.textContent=job.reference?.id||job.id;const status=document.createElement('span');status.className=`status ${job.status}`;status.textContent=job.status;top.append(key,status);const time=document.createElement('div');time.className='job-time';time.textContent=fmt(job.createdAt);button.append(top,time);button.onclick=()=>selectJob(job.id);return button}))}
-async function selectJob(id){state.selected=id;renderJobs();clearTimeout(state.poll);try{const job=await request(`/bff/jobs/${id}`);renderDetail(job);await renderExecutions(job);await renderRuns(job);if(!['Completed','Failed','Cancelled'].includes(job.status))state.poll=setTimeout(()=>selectJob(id),1500)}catch(error){$('detail').className='detail-panel';$('detail').replaceChildren(message('Unable to load job',error.message,'gap'))}}
+async function selectJob(id){state.selected=id;renderJobs();clearTimeout(state.poll);try{const job=await request(`/bff/jobs/${id}`);renderDetail(job);await renderLineage(job);await renderExecutions(job);await renderRuns(job);if(!['Completed','Failed','Cancelled'].includes(job.status))state.poll=setTimeout(()=>selectJob(id),1500)}catch(error){$('detail').className='detail-panel';$('detail').replaceChildren(message('Unable to load job',error.message,'gap'))}}
 function node(tag,text,className){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(className)el.className=className;return el}
 function message(title,text,kind=''){const box=node('div',undefined,`notice ${kind}`);box.append(node('strong',title),node('p',text));return box}
 function section(title){const el=node('section',undefined,'detail-section');el.append(node('h3',title));return el}
@@ -16,6 +16,26 @@ const criteria=requirement.acceptanceCriteria||[];if(criteria.length){const s=se
 if(plan.summary){const s=section('Plan summary');s.append(node('div',plan.summary,'notice'));detail.append(s)}
 const tests=plan.testCases||[];if(tests.length){const s=section(`Proposed tests (${tests.length})`);tests.forEach(test=>{const card=node('details',undefined,'test-card');const summary=node('summary');summary.append(node('span',test.title),node('span',`${test.priority} · ${test.category}`,'status'));card.append(summary);const list=node('ol');(test.steps||[]).forEach(step=>{const li=node('li');li.append(document.createTextNode(step.action+' '),node('span',`Expected: ${step.expectedResult}`,'expected'));list.append(li)});card.append(list);s.append(card)});detail.append(s)}
 [['Assumptions',plan.assumptions,''],['Coverage gaps',plan.coverageGaps,'gap']].forEach(([title,items,kind])=>{if(items?.length){const s=section(`${title} (${items.length})`);items.forEach(item=>s.append(message(title.slice(0,-1),item,kind)));detail.append(s)}})}
+async function renderLineage(job){
+  if(!job.testPlan||!job.requirement)return;
+  const s=section('Persisted traceability');s.append(node('p','Loading lineage…','form-message'));$('detail').append(s);
+  try{
+    const data=await request(`/bff/jobs/${job.id}/lineage`);s.replaceChildren(node('h3','Persisted traceability'));
+    const status=data.sourceRevisionDrift?'Stale catalog coverage':data.hasCatalogCoverage?'Current catalog coverage':'Not cataloged';
+    s.append(message(status,data.sourceRevisionDrift?`The source is now ${data.currentSourceRevision}; at least one catalog version was created from an older revision.`:data.hasCatalogCoverage?'Cataloged coverage matches the current source revision.':'No regression catalog version contains this story.',data.sourceRevisionDrift||!data.hasCatalogCoverage?'gap':''));
+    const chain=node('ol',undefined,'lineage-chain');
+    chain.append(lineageItem('Requirement source',`${data.reference.source}:${data.reference.id} · revision ${data.currentSourceRevision}`));
+    chain.append(lineageItem('Acceptance criteria',`${data.acceptanceCriteria.length} persisted · ${(data.coverageGaps||[]).length} not represented in the catalog`));
+    chain.append(lineageItem('Planned tests',`${data.plannedTests.length} in ${job.testPlan.id}`));
+    chain.append(lineageItem('Execution manifests',`${data.executionRequests.length} request(s) · ${data.executionRequests.filter(item=>item.rerunAttempt>0).length} rerun request(s)`));
+    const verified=data.runs.filter(run=>run.evidenceVerified).length;
+    chain.append(lineageItem('Runs and verified evidence',`${data.runs.length} run(s) · ${verified} with checksum- and redaction-verified stored evidence`));
+    chain.append(lineageItem('Regression catalog',`${data.catalogVersions.length} matching immutable version(s)`));s.append(chain);
+    if((data.coverageGaps||[]).length)s.append(message('Stale or missing acceptance-criterion coverage',data.coverageGaps.join(' · '),'gap'));
+    if(data.catalogVersions.length){const history=node('details',undefined,'evidence');history.append(node('summary',`Catalog version history (${data.catalogVersions.length})`));const list=node('div',undefined,'version-list');data.catalogVersions.forEach(version=>{const row=node('div',undefined,'version-row');const info=node('div');info.append(node('strong',`${version.suiteName} · v${version.number}${version.active?' · active':''}`),node('span',`${version.versionId} · source ${version.sourceRevision}${version.sourceRevisionStale?' · STALE':''}`,'run-id'),node('code',version.sha256));const link=node('a','Export JSON','evidence-save');link.href=`/bff/regression-suites/${encodeURIComponent(version.suiteId)}/versions/${encodeURIComponent(version.versionId)}/export`;link.download=`${version.versionId}.json`;row.append(info,link);list.append(row)});history.append(list);s.append(history)}
+  }catch(error){s.replaceChildren(node('h3','Persisted traceability'),message('Unable to load lineage',error.status===409?'Lineage becomes available after requirement planning completes.':error.message,'gap'))}
+}
+function lineageItem(title,detail){const item=node('li');item.append(node('strong',title),node('span',detail));return item}
 async function renderExecutions(job){
   if(!job.testPlan)return;
   const s=section('Reviewed execution');

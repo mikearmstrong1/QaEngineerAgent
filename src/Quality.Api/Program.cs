@@ -465,6 +465,18 @@ try
         var job = await jobs.GetAsync(id, ct);
         return job is null ? Results.NotFound() : Results.Ok(job);
     });
+    app.MapGet("/jobs/{id}/lineage", async (string id, ExecutionRequestService executions,
+        ITestRunStore runs, IRegressionCatalogStore catalog, CancellationToken ct) =>
+    {
+        if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+        var job = await jobs.GetAsync(id, ct);
+        if (job is null) return Results.NotFound();
+        if (job.Requirement is null || job.TestPlan is null)
+            return Results.Conflict(new { error = "lineage_not_ready" });
+        return Results.Ok(RegressionCatalogService.BuildJobLineage(job,
+            await executions.ListByJobAsync(id, ct), await runs.ListByPlanAsync(job.TestPlan.Id, ct),
+            await catalog.ListAsync(ct)));
+    });
     app.MapPost("/jobs/{id}/execution-requests", async (string id, CreateExecutionRequest input, ExecutionRequestService executions, CancellationToken ct) =>
     {
         if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
@@ -865,20 +877,44 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     var planningKind = configuration["Quality:Planning:Mode"] ?? "Stub";
     if (planningKind.Equals("Stub", StringComparison.OrdinalIgnoreCase))
         services.AddSingleton<ILlmProvider, StubLlmProvider>();
-    else if (planningKind.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
+    else if (planningKind.Equals("OpenAI", StringComparison.OrdinalIgnoreCase)
+        || planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
     {
         var section = configuration.GetSection("Quality:Planning");
-        var options = new PlanningOptions(section["ApiKey"] ?? configuration["OPENAI_API_KEY"] ?? "",
+        var environmentKey = planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+            ? configuration["ANTHROPIC_API_KEY"] : configuration["OPENAI_API_KEY"];
+        var configuredKey = section["ApiKey"];
+        var options = new PlanningOptions(string.IsNullOrWhiteSpace(configuredKey) ? environmentKey ?? "" : configuredKey,
             section["Model"] ?? "", section.GetValue("MaxAttempts", 3),
             section.GetValue("AttemptTimeoutSeconds", 20), section.GetValue("TotalTimeoutSeconds", 75),
             section.GetValue("MaxOutputTokens", 8192));
         options.Validate();
         services.AddSingleton(options);
         services.AddSingleton(new PlanningPrompt(section["AssetDirectory"] ?? AppContext.BaseDirectory));
-        services.AddHttpClient<ILlmProvider, OpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+        if (planningKind.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
+            services.AddHttpClient<ILlmProvider, AnthropicPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        else
+            services.AddHttpClient<ILlmProvider, OpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    }
+    else if (planningKind.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase))
+    {
+        var section = configuration.GetSection("Quality:Planning");
+        var options = new AzureOpenAiPlanningOptions(
+            section["Azure:Endpoint"] ?? configuration["AZURE_OPENAI_ENDPOINT"] ?? "",
+            section["Azure:Deployment"] ?? section["Model"] ?? configuration["AZURE_OPENAI_DEPLOYMENT"] ?? "",
+            section["Azure:ApiVersion"] ?? configuration["AZURE_OPENAI_API_VERSION"] ?? "2025-04-01-preview",
+            section["Azure:ApiKey"] ?? configuration["AZURE_OPENAI_API_KEY"],
+            section.GetValue("MaxAttempts", 3), section.GetValue("AttemptTimeoutSeconds", 20),
+            section.GetValue("TotalTimeoutSeconds", 75), section.GetValue("MaxOutputTokens", 8192));
+        options.Validate();
+        services.AddSingleton(options);
+        services.AddSingleton(new PlanningPrompt(section["AssetDirectory"] ?? AppContext.BaseDirectory));
+        services.AddHttpClient<ILlmProvider, AzureOpenAiPlanningProvider>(client => client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
     }
-    else throw new ArgumentException("Quality__Planning__Mode must be Stub or OpenAI");
+    else throw new ArgumentException("Quality__Planning__Mode must be Stub, OpenAI, Anthropic, or AzureOpenAI");
     var artifactMode = configuration["Quality:Artifacts:Mode"] ?? "Local";
     if (artifactMode.Equals("Local", StringComparison.OrdinalIgnoreCase))
         services.AddSingleton<IArtifactStore, StubArtifactStore>();

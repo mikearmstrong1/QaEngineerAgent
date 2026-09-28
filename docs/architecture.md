@@ -12,7 +12,7 @@ flowchart LR
     Store --> Worker[Worker claims lease]
     Worker --> Source[IRequirementSource: stub or Jira/Coda]
     Source --> Requirement[Normalized requirement checkpoint]
-    Requirement --> LLM[ILlmProvider: stub or OpenAI]
+    Requirement --> LLM[ILlmProvider: stub, OpenAI, Anthropic, or Azure OpenAI]
     LLM --> Plan[Structured test plan]
     Plan --> Store
     Store --> Read[HTTP GET /jobs/id or CLI get]

@@ -16,6 +16,8 @@ Open [http://127.0.0.1:5081](http://127.0.0.1:5081) after starting Compose. The 
 
 The browser talks only to same-origin `/bff/*` routes. The Command Center service injects `QUALITY_API_KEY` when it calls the Quality API; the bearer key and Jira/OpenAI credentials are never placed in browser assets or responses. The Compose port binds to loopback. Deployments exposed beyond a trusted local machine need user authentication and TLS in front of the service.
 
+Each completed planning job includes a **Persisted traceability** view built only from saved requirement, plan, execution-request, run, evidence-verification, and regression-catalog records. It follows source revision through acceptance criteria, planned tests, exact manifest requests and reruns, test runs, checksum/redaction-verified evidence, and immutable catalog versions. It flags acceptance criteria absent from matching catalog versions and source-revision drift. Version history includes the deterministic SHA-256 and a JSON export link. Terminal users retain the equivalent `regression-list`, `regression-show`, and `regression-export` commands; `GET /jobs/{id}/lineage` provides the composed machine-readable view.
+
 Mutating BFF calls require the non-simple `X-Command-Center: 1` header and JSON content. Jira keys are normalized and validated again before forwarding. The Quality API remains authoritative for request validation and idempotency behavior.
 
 ## Review a failed run

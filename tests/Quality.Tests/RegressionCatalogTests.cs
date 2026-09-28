@@ -125,4 +125,44 @@ public sealed class RegressionCatalogTests
         Assert.Equal(.5, metrics.ExecutionCoverage);
         Assert.Equal(1, metrics.PassRate);
     }
+
+    [Fact]
+    public void JobLineageDetectsSourceDriftAndRequiresVerifiedEvidence()
+    {
+        var fixture = Fixture();
+        var suite = RegressionCatalogService.CreateSuite("Critical journeys");
+        var version = RegressionCatalogService.CreateVersion(suite, fixture.Requirement, fixture.Plan, fixture.Run,
+            fixture.Run.ManifestHash!, DateTimeOffset.UnixEpoch);
+        suite = RegressionCatalogService.Append(suite, version);
+        var current = fixture.Requirement with { SourceRevision = "jira-rev-8" };
+        var job = new QualityJob(Guid.NewGuid().ToString("N"), current.Reference, JobStatus.Completed,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, 1, current, fixture.Plan, [], [], null, null, null);
+        var request = new ExecutionRequest(Guid.NewGuid().ToString("N"), job.Id, fixture.Plan.Id, "https://example.test",
+            ExecutionRequestStatus.Passed, "{}", fixture.Run.ManifestHash!, 1, DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch, RunId: fixture.Run.Id, RerunAttempt: 1);
+        var verification = new ArtifactVerification("source", "stored", true, "TextScanPassed", DateTimeOffset.UnixEpoch);
+        var run = fixture.Run with { StoredArtifacts = [new("trace.zip", "runs/trace.zip", "evidence", "application/zip", 42,
+            "stored", "minio", verification)] };
+
+        var lineage = RegressionCatalogService.BuildJobLineage(job, [request], [run], [suite]);
+
+        Assert.True(lineage.SourceRevisionDrift);
+        Assert.True(Assert.Single(lineage.Runs).EvidenceVerified);
+        Assert.Equal(request.Id, lineage.Runs[0].ExecutionRequestId);
+        Assert.True(Assert.Single(lineage.CatalogVersions).SourceRevisionStale);
+        Assert.Equal(["AC-1", "AC-2"], lineage.CoverageGaps);
+    }
+
+    [Fact]
+    public void JobLineageReportsAcceptanceCriteriaMissingFromCatalog()
+    {
+        var fixture = Fixture();
+        var job = new QualityJob(Guid.NewGuid().ToString("N"), fixture.Requirement.Reference, JobStatus.Completed,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, 1, fixture.Requirement, fixture.Plan, [], [], null, null, null);
+
+        var lineage = RegressionCatalogService.BuildJobLineage(job, [], [], []);
+
+        Assert.False(lineage.HasCatalogCoverage);
+        Assert.Equal(["AC-1", "AC-2"], lineage.CoverageGaps);
+    }
 }

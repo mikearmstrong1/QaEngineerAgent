@@ -48,6 +48,19 @@ app.MapGet("/bff/jobs/{id}", async (string id, IHttpClientFactory factory, Cance
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
     return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}", null, ct);
 });
+app.MapGet("/bff/jobs/{id}/lineage", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });
+    return await ForwardAsync(factory, HttpMethod.Get, $"/jobs/{id}/lineage", null, ct);
+});
+app.MapGet("/bff/regression-suites/{suiteId}/versions/{versionId}/export", async (string suiteId, string versionId,
+    IHttpClientFactory factory, CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(suiteId, "^SUITE-[a-f0-9]{24}$") || !Regex.IsMatch(versionId, "^VERSION-[a-f0-9]{24}$"))
+        return Results.BadRequest(new { error = "invalid_regression_version" });
+    return await ForwardAsync(factory, HttpMethod.Get,
+        $"/regression-suites/{suiteId}/versions/{versionId}/export", null, ct);
+});
 app.MapGet("/bff/jobs/{id}/runs", async (string id, IHttpClientFactory factory, CancellationToken ct) =>
 {
     if (!Guid.TryParseExact(id, "N", out _)) return Results.BadRequest(new { error = "invalid_job_id" });

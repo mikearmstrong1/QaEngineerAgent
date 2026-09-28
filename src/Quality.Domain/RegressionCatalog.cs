@@ -20,3 +20,15 @@ public sealed record RegressionCatalogExport(string SuiteId, string VersionId, s
 public sealed record RegressionCatalogMetrics(string SuiteId, string VersionId, int StoryCount,
     int RegressionCaseCount, int ExecutedCaseCount, int PassedCaseCount, int FailedCaseCount,
     double ExecutionCoverage, double PassRate);
+
+public sealed record LineageEvidence(string LocalKey, string? ObjectKey, bool ChecksumVerified,
+    string RedactionStatus, DateTimeOffset? VerifiedAt);
+public sealed record LineageRun(string Id, string Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt,
+    string? ExecutionRequestId, string? ParentExecutionRequestId, string? RootExecutionRequestId, int RerunAttempt,
+    string? ManifestHash, LineageEvidence[] Evidence, bool EvidenceVerified);
+public sealed record LineageCatalogVersion(string SuiteId, string SuiteName, string VersionId, int Number,
+    string SourceRevision, bool Active, bool SourceRevisionStale, string Sha256, DateTimeOffset CreatedAt);
+public sealed record JobLineage(string JobId, RequirementReference Reference, string CurrentSourceRevision,
+    AcceptanceCriterion[] AcceptanceCriteria, TestCase[] PlannedTests, ExecutionRequest[] ExecutionRequests,
+    LineageRun[] Runs, LineageCatalogVersion[] CatalogVersions, bool HasCatalogCoverage,
+    bool SourceRevisionDrift, string[] CoverageGaps);

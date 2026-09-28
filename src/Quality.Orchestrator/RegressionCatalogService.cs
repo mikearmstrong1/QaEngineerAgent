@@ -80,6 +80,46 @@ public static class RegressionCatalogService
             executed, passed, failed, Ratio(executed, caseIds.Count), Ratio(passed, executed));
     }
 
+    public static JobLineage BuildJobLineage(QualityJob job, IEnumerable<ExecutionRequest> executionRequests,
+        IEnumerable<TestRun> runs, IEnumerable<RegressionSuite> suites)
+    {
+        if (job.Requirement is null || job.TestPlan is null)
+            throw new ArgumentException("Completed requirement and test plan are required for lineage");
+        var requests = executionRequests.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id, StringComparer.Ordinal).ToArray();
+        var requestByRun = requests.Where(item => item.RunId is not null).GroupBy(item => item.RunId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+        var lineageRuns = runs.OrderBy(item => item.StartedAt).ThenBy(item => item.Id, StringComparer.Ordinal).Select(run =>
+        {
+            requestByRun.TryGetValue(run.Id, out var request);
+            var evidence = (run.StoredArtifacts ?? []).Select(item => new LineageEvidence(item.LocalKey, item.ObjectKey,
+                item.Verification?.ChecksumVerified == true, item.Verification?.RedactionStatus ?? "Unverified",
+                item.Verification?.VerifiedAt)).OrderBy(item => item.LocalKey, StringComparer.Ordinal).ToArray();
+            var verified = evidence.Length > 0 && evidence.All(item => item.ChecksumVerified &&
+                (string.Equals(item.RedactionStatus, "Verified", StringComparison.OrdinalIgnoreCase) ||
+                 item.RedactionStatus.EndsWith("ScanPassed", StringComparison.Ordinal)));
+            return new LineageRun(run.Id, run.Status, run.StartedAt, run.FinishedAt, request?.Id,
+                request?.ParentExecutionRequestId, request?.RootExecutionRequestId, request?.RerunAttempt ?? 0,
+                run.ManifestHash, evidence, verified);
+        }).ToArray();
+        var matching = suites.SelectMany(suite => suite.Versions
+            .Where(version => version.TestPlanId == job.TestPlan.Id || version.Cases.Any(item => item.RequirementId == job.Requirement.Id))
+            .Select(version => (suite, version))).ToArray();
+        var versions = matching.Select(item => new LineageCatalogVersion(item.suite.Id, item.suite.Name, item.version.Id,
+            item.version.Number, item.version.SourceRevision, item.suite.ActiveVersionId == item.version.Id,
+            !string.Equals(item.version.SourceRevision, job.Requirement.SourceRevision, StringComparison.Ordinal),
+            Export(item.version).Sha256, item.version.CreatedAt))
+            .OrderByDescending(item => item.CreatedAt).ThenBy(item => item.VersionId, StringComparer.Ordinal).ToArray();
+        var currentActive = matching.Where(item => item.suite.ActiveVersionId == item.version.Id &&
+            string.Equals(item.version.SourceRevision, job.Requirement.SourceRevision, StringComparison.Ordinal)).ToArray();
+        var coveredCriteria = currentActive.SelectMany(item => item.version.Cases).SelectMany(item => item.AcceptanceCriterionIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var gaps = job.Requirement.AcceptanceCriteria.Where(item => !coveredCriteria.Contains(item.Id))
+            .Select(item => item.Id).Order(StringComparer.Ordinal).ToArray();
+        return new JobLineage(job.Id, job.Requirement.Reference, job.Requirement.SourceRevision,
+            job.Requirement.AcceptanceCriteria, job.TestPlan.TestCases, requests, lineageRuns, versions,
+            versions.Length > 0, versions.Any(item => item.Active && item.SourceRevisionStale), gaps);
+    }
+
     private static void ValidatePromotion(Requirement requirement, TestPlan plan, TestRun run, string hash)
     {
         if (requirement.IsStub || plan.IsStub) throw new ArgumentException("Synthetic coverage cannot enter the regression catalog");

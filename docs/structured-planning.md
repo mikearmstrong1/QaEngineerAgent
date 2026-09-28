@@ -1,6 +1,6 @@
 # Structured planning provider
 
-Step 2 adds an optional OpenAI Responses API provider. The default planner remains `Stub` for offline demos. Live planning submits the normalized requirement to OpenAI and returns a proposed plan for review; it never executes tests.
+Step 2 adds optional OpenAI Responses API, Anthropic Messages API, and Azure OpenAI providers. The default planner remains `Stub` for offline demos. Live planning submits the normalized requirement to the selected provider and returns a proposed plan for review; it never executes tests.
 
 ## Enable on a native worker or one-shot process
 
@@ -12,15 +12,32 @@ export OPENAI_API_KEY='<your API key>'
 
 Choose a model that supports the Responses API and strict JSON Schema outputs. No model is chosen automatically; use a snapshot ID when reproducibility matters. The configured ID and the returned model ID are both persisted. `Quality__Planning__ApiKey` may be used instead of `OPENAI_API_KEY`.
 
+### Anthropic
+
+Set `Quality__Planning__Mode=Anthropic`, choose an Anthropic model with structured-output support, and provide `ANTHROPIC_API_KEY`. The adapter calls the fixed Messages API endpoint with server-side `x-api-key` authentication. `Quality__Planning__ApiKey` is also supported as a provider-neutral override.
+
 Combine this with [Remote requirements configuration](requirements-ingestion.md), then submit an ordinary requirement reference. Setting planning mode alone leaves requirement ingestion in Stub mode, which intentionally produces a no-call gap report instead of sending synthetic requirements to the model.
 
-For Compose, `.env` supports `QUALITY_PLANNING_MODE=OpenAI`, `QUALITY_PLANNING_MODEL`, and `OPENAI_API_KEY`; the shared service environment forwards these values. Supply the requirement-adapter variables through a Compose override as described in the ingestion guide. Rebuild the image for this implementation before enabling it.
+### Azure OpenAI
+
+Azure-hosted deployments use the same pinned prompt, strict schema, local validation, retry limits, and sanitized failure contract:
+
+```sh
+export Quality__Planning__Mode=AzureOpenAI
+export AZURE_OPENAI_ENDPOINT='https://YOUR-RESOURCE.openai.azure.com'
+export AZURE_OPENAI_DEPLOYMENT='YOUR-DEPLOYMENT'
+export AZURE_OPENAI_API_VERSION='2025-04-01-preview'
+```
+
+Authentication defaults to `DefaultAzureCredential`, so managed identity, workload identity, Azure CLI, and other credential-chain mechanisms remain server-side. Set `AZURE_OPENAI_API_KEY` only when key authentication is required. The endpoint must be HTTPS and cannot contain user information, a query, or a fragment. The deployment, returned model snapshot, Azure API version, and `azure-openai` provider identity are persisted as planning metadata; credentials are never persisted or returned to browser clients. The equivalent hierarchical settings are `Quality__Planning__Azure__Endpoint`, `Deployment`, `ApiVersion`, and `ApiKey`.
+
+For Compose, `.env` supports OpenAI, Anthropic, and Azure OpenAI variables; the shared service environment forwards these values. `QUALITY_PLANNING_API_KEY` can replace the provider-specific OpenAI or Anthropic key variable. `DefaultAzureCredential` in a container still needs an available managed/workload identity or other explicitly configured Azure credential source. Supply the requirement-adapter variables through a Compose override as described in the ingestion guide. Rebuild the image for this implementation before enabling it.
 
 ## Prompt and validation contract
 
 `prompts/plan/v2/manifest.json` pins the SHA-256 digests of `system.md` and `schemas/v1/planning-output.schema.json`. The application loads them once at startup and rejects missing files, unexpected manifest paths/version, or changed contents. Build and publish outputs include these files. `Quality__Planning__AssetDirectory` can override their root; it defaults to the application's binary directory. The previous `plan/v1` contract remains unchanged for historical reference.
 
-The request uses `text.format` with `type=json_schema` and `strict=true`, supplies the pinned system prompt as instructions, and serializes the requirement as user data. No tools are configured. Provider-side response storage is disabled with `store=false`.
+OpenAI and Azure OpenAI requests use `text.format` with `type=json_schema` and `strict=true`; Anthropic requests use `output_config.format` with `type=json_schema`. Each supplies the pinned system prompt separately and serializes the requirement as user data. No tools are configured. OpenAI-compatible provider-side response storage is disabled with `store=false`.
 
 The returned JSON is validated locally with JsonSchema.Net against the same schema. Additional properties, missing/null fields, invalid categories/priorities, empty steps and duplicate JSON keys are rejected. Every test must link to known criterion IDs; duplicate test IDs or repeated criterion links are rejected. The application supplies plan and requirement IDs, `automationStatus=Planned`, prompt version, stub flags and provider metadata.
 
@@ -35,7 +52,7 @@ Missing, blank or duplicate acceptance criteria, or synthetic input, produce an 
 | `TotalTimeoutSeconds` | 75 | 1–80 |
 | `MaxOutputTokens` | 8192 | 256–16384 |
 
-The total timeout covers all requests and retry delays. These limits fit inside the existing five-minute job lease and, with normal ingestion, the two-minute one-shot deadline. Inputs are capped at 1 MiB and responses at 2 MiB. Requests use the fixed HTTPS OpenAI endpoint, with redirects disabled.
+The total timeout covers all requests and retry delays. These limits fit inside the existing five-minute job lease and, with normal ingestion, the two-minute one-shot deadline. Inputs are capped at 1 MiB and responses at 2 MiB. Requests use fixed HTTPS provider endpoints, with redirects disabled.
 
 HTTP 408, 429 and 5xx responses, transport failures and per-attempt timeouts may retry within the budget. Retry delays start at 250 ms and increase exponentially. `Retry-After` is honored; a delay beyond the budget ends the attempt rather than retrying early. Retried requests may incur additional API usage. Invalid output, refusal, incomplete output and permanent HTTP failures do not retry or fall back to synthetic content.
 

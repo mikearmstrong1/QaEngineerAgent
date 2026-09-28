@@ -26,13 +26,15 @@ public sealed class PlanningException(string code, PlanningMetadata metadata) : 
     public PlanningMetadata Metadata { get; } = metadata;
 }
 
-public sealed class OpenAiPlanningProvider : ILlmProvider
+public class OpenAiPlanningProvider : ILlmProvider
 {
     private readonly HttpClient http;
-    private readonly PlanningOptions options;
+    protected readonly PlanningOptions options;
     private readonly PlanningPrompt prompt;
-    public string Name => "openai";
+    public virtual string Name => "openai";
     public const string ProviderVersion = "responses/v1;quality-planner/v1";
+    protected virtual string ProviderRevision => ProviderVersion;
+    protected virtual Uri RequestUri => new("https://api.openai.com/v1/responses");
 
     public OpenAiPlanningProvider(HttpClient http, PlanningOptions options, PlanningPrompt prompt)
     {
@@ -45,7 +47,7 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
     public async Task<TestPlan> PlanAsync(Requirement requirement, string promptVersion, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var metadata = new PlanningMetadata(Name, options.Model, null, ProviderVersion, prompt.PromptHash, prompt.SchemaHash, 0, null);
+        var metadata = new PlanningMetadata(Name, options.Model, null, ProviderRevision, prompt.PromptHash, prompt.SchemaHash, 0, null);
         if (promptVersion != PlanningPrompt.Version) throw new PlanningException("planning_prompt_mismatch", metadata);
         var gaps = new List<string>();
         if (requirement.IsStub) gaps.Add("A real source requirement is needed; synthetic input cannot support a grounded test plan.");
@@ -83,8 +85,8 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
             {
                 using var attemptTimeout = CancellationTokenSource.CreateLinkedTokenSource(total.Token);
                 attemptTimeout.CancelAfter(TimeSpan.FromSeconds(options.AttemptTimeoutSeconds));
-                using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+                using var request = new HttpRequestMessage(HttpMethod.Post, RequestUri);
+                await AuthorizeAsync(request, attemptTimeout.Token);
                 request.Content = new ByteArrayContent(payload);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
                 using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, attemptTimeout.Token);
@@ -128,6 +130,7 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
                 }
             }
             catch (PlanningException) { throw; }
+            catch (AzurePlanningAuthenticationException) { throw new PlanningException("planning_auth_error", metadata); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (OperationCanceledException)
             {
@@ -148,11 +151,17 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
         throw new PlanningException("planning_retry_budget_exhausted", metadata);
     }
 
-    private static TestPlan GapPlan(Requirement requirement, List<string> gaps, PlanningMetadata metadata)
+    protected virtual ValueTask AuthorizeAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+        return ValueTask.CompletedTask;
+    }
+
+    internal static TestPlan GapPlan(Requirement requirement, List<string> gaps, PlanningMetadata metadata)
         => new(Guid.NewGuid().ToString("N"), requirement.Id, "Source information is insufficient; review coverage gaps before planning.",
             [], [], gaps.Distinct().ToArray(), PlanningPrompt.Version, false, Planning: metadata);
 
-    private static TestPlan BuildPlan(Requirement requirement, JsonElement output, List<string> gaps, PlanningMetadata metadata)
+    internal static TestPlan BuildPlan(Requirement requirement, JsonElement output, List<string> gaps, PlanningMetadata metadata)
     {
         var knownIds = requirement.AcceptanceCriteria.Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
         var testIds = new HashSet<string>(StringComparer.Ordinal);
@@ -176,7 +185,7 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
     }
 
     private static bool Retryable(HttpStatusCode code) => code is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests || (int)code >= 500;
-    private static string RequiredString(JsonElement element, string key)
+    internal static string RequiredString(JsonElement element, string key)
     {
         var value = element.GetProperty(key).GetString();
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidDataException("Missing provider field");
@@ -184,7 +193,7 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
     }
     private static string[] Strings(JsonElement element, string key) => element.GetProperty(key).EnumerateArray().Select(e =>
         !string.IsNullOrWhiteSpace(e.GetString()) ? e.GetString()! : throw new InvalidDataException("Empty provider field")).ToArray();
-    private static void RejectDuplicateKeys(JsonElement element)
+    internal static void RejectDuplicateKeys(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
@@ -198,7 +207,7 @@ public sealed class OpenAiPlanningProvider : ILlmProvider
         else if (element.ValueKind == JsonValueKind.Array)
             foreach (var item in element.EnumerateArray()) RejectDuplicateKeys(item);
     }
-    private static async Task<JsonDocument> ReadAsync(HttpResponseMessage response, CancellationToken ct)
+    internal static async Task<JsonDocument> ReadAsync(HttpResponseMessage response, CancellationToken ct)
     {
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var buffer = new MemoryStream();
