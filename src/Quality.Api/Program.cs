@@ -10,10 +10,10 @@ using Quality.Persistence;
 var mode = args.FirstOrDefault() ?? "api";
 if (mode is "help" or "--help")
 {
-    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | get --id <job-id> | cancel --id <job-id> | regression-list | regression-show --suite <suite-id> | regression-export --suite <suite-id> [--version <version-id>] | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | schedule-list | schedule-show --id <schedule-id> | schedule-create --name <name> --job <job-id> --target <url> --policy <name> --interval-seconds <n> --enabled <true|false> [--first-occurrence <timestamp>] | schedule-enable|schedule-disable --id <schedule-id> --revision <n> | schedule-run-due | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-explain --id <request-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch|execution-rerun --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
+    Console.WriteLine("Quality.Api api | worker | run --source jira --reference AUTH-1427 [--idempotency-key <key>] | jira-status-automation --status <status> --max-stories <1-100> --target <url> --policy <name> [--idempotency-key <namespace>] | get --id <job-id> | cancel --id <job-id> | regression-list | regression-show --suite <suite-id> | regression-export --suite <suite-id> [--version <version-id>] | policy-list | policy-show --name <name> --version <version> | policy-create --file <policy.json> | policy-activate|policy-disable|policy-retire --name <name> --version <version> | autonomous-execute --job <job-id> --target <url> --policy <name> [--idempotency-key <key>] | automation-get --id <workflow-id> | automation-review --id <workflow-id> --revision <n> --decision approve|reject --reviewer <identity> | automation-cancel --id <workflow-id> | schedule-list | schedule-show --id <schedule-id> | schedule-create --name <name> --job <job-id> --target <url> --policy <name> --interval-seconds <n> --enabled <true|false> [--first-occurrence <timestamp>] | schedule-enable|schedule-disable --id <schedule-id> --revision <n> | schedule-run-due | execution-create --job <job-id> --target <url> | execution-list --job <job-id> | execution-explain --id <request-id> | execution-update --id <request-id> --manifest <path> --revision <n> | execution-approve --id <request-id> --revision <n> --sha256 <hash> --reviewer <identity> | execution-launch|execution-rerun --id <request-id> --revision <n> | prepare-execution --job <job-id> --target <url> | execute --job <job-id> --manifest <path> --sha256 <reviewed-hash> | get-run --id <run-id> | init-artifacts | publish-artifacts --run <run-id> | associate-failure --file <analysis.json> | promote-regression --job <job-id> --run <run-id> --sha256 <reviewed-manifest-hash> | classify-failure --run <run-id> --classification <category> --reason <review-reason>");
     return 0;
 }
-if (mode is not ("api" or "worker" or "run" or "get" or "cancel" or "regression-list" or "regression-show" or "regression-export" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "schedule-list" or "schedule-show" or "schedule-create" or "schedule-enable" or "schedule-disable" or "schedule-run-due" or "execution-create" or "execution-list" or "execution-explain" or "execution-update" or "execution-approve" or "execution-launch" or "execution-rerun" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
+if (mode is not ("api" or "worker" or "run" or "jira-status-automation" or "get" or "cancel" or "regression-list" or "regression-show" or "regression-export" or "policy-list" or "policy-show" or "policy-create" or "policy-activate" or "policy-disable" or "policy-retire" or "autonomous-execute" or "automation-get" or "automation-review" or "automation-cancel" or "schedule-list" or "schedule-show" or "schedule-create" or "schedule-enable" or "schedule-disable" or "schedule-run-due" or "execution-create" or "execution-list" or "execution-explain" or "execution-update" or "execution-approve" or "execution-launch" or "execution-rerun" or "prepare-execution" or "execute" or "get-run" or "init-artifacts" or "publish-artifacts" or "associate-failure" or "promote-regression" or "classify-failure"))
 {
     Console.Error.WriteLine("Unknown mode; use --help");
     return 2;
@@ -67,7 +67,7 @@ try
     await app.Services.GetRequiredService<IJobStore>().InitializeAsync(CancellationToken.None);
     await app.Services.GetRequiredService<IRegressionCatalogStore>().InitializeAsync(CancellationToken.None);
     await app.Services.GetRequiredService<IAutomationScheduleStore>().InitializeAsync(CancellationToken.None);
-    if (mode == "api" || mode.StartsWith("policy-", StringComparison.Ordinal) || mode == "autonomous-execute"
+    if (mode == "api" || mode.StartsWith("policy-", StringComparison.Ordinal) || mode == "autonomous-execute" || mode == "jira-status-automation"
         || mode.StartsWith("automation-", StringComparison.Ordinal) || mode.StartsWith("schedule-", StringComparison.Ordinal))
         await app.Services.GetRequiredService<ExecutionPolicyService>().InitializeAsync(CancellationToken.None);
     var jobs = app.Services.GetRequiredService<JobService>();
@@ -128,6 +128,20 @@ try
         var status = mode == "policy-activate" ? ExecutionPolicyStatus.Active
             : mode == "policy-disable" ? ExecutionPolicyStatus.Disabled : ExecutionPolicyStatus.Retired;
         Console.WriteLine(JsonSerializer.Serialize(await policies.SetStatusAsync(options["--name"], options["--version"], status, timeout.Token), ContractJson.Options));
+        return 0;
+    }
+    if (mode == "jira-status-automation")
+    {
+        var parsed = ParseOptions(args.Skip(1).ToArray(), ["--status", "--max-stories", "--target", "--policy"], ["--idempotency-key"]);
+        if (!int.TryParse(parsed["--max-stories"], out var maximum) || maximum is < 1 or > 100)
+            throw new ArgumentException("max-stories must be an integer from 1 to 100");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        if (app.Services.GetService<IJiraIssueSearcher>() is null)
+            throw new ArgumentException("Jira status automation requires Quality__Requirements__Mode=Remote");
+        var service = app.Services.GetService<JiraStatusAutomationService>()
+            ?? throw new InvalidOperationException("Jira status automation is unavailable");
+        Console.WriteLine(JsonSerializer.Serialize(await service.RunAsync(parsed["--status"], maximum, parsed["--target"],
+            parsed["--policy"], parsed.GetValueOrDefault("--idempotency-key"), timeout.Token), ContractJson.Options));
         return 0;
     }
     if (mode == "autonomous-execute")
@@ -870,8 +884,10 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         services.AddSingleton(new RequirementSourceOptions(
             section["Jira:BaseUrl"], section["Jira:Email"], section["Jira:Token"], section["Jira:AcceptanceField"],
             section["Coda:Token"], section["Coda:TitleColumn"], section["Coda:DescriptionColumn"], section["Coda:AcceptanceColumn"]));
-        services.AddHttpClient<IRequirementSource, RemoteRequirementSource>()
+        services.AddHttpClient<RemoteRequirementSource>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddSingleton<IRequirementSource>(sp => sp.GetRequiredService<RemoteRequirementSource>());
+        services.AddSingleton<IJiraIssueSearcher>(sp => sp.GetRequiredService<RemoteRequirementSource>());
     }
     else throw new ArgumentException("Quality__Requirements__Mode must be Stub or Remote");
     var planningKind = configuration["Quality:Planning:Mode"] ?? "Stub";
@@ -987,6 +1003,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     });
     services.AddSingleton<AutomationTriggerVerifier>();
     services.AddSingleton<AutomationWorkflowService>();
+    services.AddSingleton<JiraStatusAutomationService>();
     services.AddSingleton<AutomationScheduleService>();
     services.AddSingleton<JobService>();
     if (runWorker)

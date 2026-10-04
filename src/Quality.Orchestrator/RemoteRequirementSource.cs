@@ -14,7 +14,7 @@ public sealed record RequirementSourceOptions(
     string? CodaAcceptanceColumn = null);
 
 // Only explicit source fields or a clearly marked Jira description section become criteria.
-public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOptions options) : IRequirementSource
+public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOptions options) : IRequirementSource, IJiraIssueSearcher
 {
     public async Task<Requirement> NormalizeAsync(RequirementReference reference, CancellationToken ct)
     {
@@ -25,6 +25,44 @@ public sealed class RemoteRequirementSource(HttpClient http, RequirementSourceOp
         return reference.Source == "jira"
             ? await JiraAsync(reference, timeout.Token)
             : await CodaAsync(reference, timeout.Token);
+    }
+
+    public async Task<IReadOnlyList<JiraIssueReference>> SearchByStatusAsync(string status, int maximum, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(status) || status.Length > 100 || status.Any(char.IsControl)
+            || status.Contains('"') || status.Contains('\\'))
+            throw new ArgumentException("Jira status must contain 1-100 safe display characters");
+        if (maximum is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(maximum), "maximum must be 1-100");
+        if (!Uri.TryCreate(options.JiraBaseUrl, UriKind.Absolute, out var origin) || origin.Scheme != "https"
+            || origin.AbsolutePath != "/" || origin.Query != "" || origin.Fragment != "" || origin.UserInfo != "")
+            throw new ArgumentException("Configure an HTTPS Jira origin");
+        Require(options.JiraEmail); Require(options.JiraToken);
+        var result = new List<JiraIssueReference>();
+        string? page = null;
+        do
+        {
+            var jql = "status = \"" + status.Trim() + "\"";
+            var query = $"jql={Uri.EscapeDataString(jql)}&fields=key,updated&maxResults={Math.Min(100, maximum - result.Count)}";
+            if (page is not null) query += "&nextPageToken=" + Uri.EscapeDataString(page);
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, $"rest/api/3/search/jql?{query}"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes($"{options.JiraEmail}:{options.JiraToken}")));
+            using var document = await ReadAsync(request, ct);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("issues", out var issues) || issues.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Jira search response is missing issues");
+            foreach (var issue in issues.EnumerateArray())
+            {
+                var key = RequiredText(issue, "key");
+                new RequirementReference("jira", key).Validate();
+                var fields = issue.GetProperty("fields");
+                result.Add(new JiraIssueReference(key, RequiredText(fields, "updated")));
+                if (result.Count == maximum) break;
+            }
+            page = root.TryGetProperty("nextPageToken", out var token) && token.ValueKind == JsonValueKind.String
+                ? token.GetString() : null;
+        } while (page is not null && result.Count < maximum);
+        return result;
     }
 
     private async Task<Requirement> JiraAsync(RequirementReference reference, CancellationToken ct)

@@ -24,6 +24,52 @@ public sealed class RequirementSourceTests
     }
     private static string Fixture(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json"));
 
+    private sealed class SearchHandler : HttpMessageHandler
+    {
+        public readonly List<Uri> Requests = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests.Add(request.RequestUri!);
+            var body = Requests.Count == 1
+                ? "{\"issues\":[{\"key\":\"KAN-4\",\"fields\":{\"updated\":\"2026-10-01T00:00:00.000+0000\"}}],\"nextPageToken\":\"page-2\"}"
+                : "{\"issues\":[{\"key\":\"KAN-5\",\"fields\":{\"updated\":\"2026-10-02T00:00:00.000+0000\"}}]}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    [Fact]
+    public async Task JiraStatusSearchPagesAndReturnsOnlyValidatedIssueKeysAndRevisions()
+    {
+        using var handler = new SearchHandler();
+        using var http = new HttpClient(handler);
+        var issues = await new RemoteRequirementSource(http, Options).SearchByStatusAsync("Ready for test", 2, default);
+
+        Assert.Equal(["KAN-4", "KAN-5"], issues.Select(item => item.Key));
+        Assert.Equal("2026-10-02T00:00:00.000+0000", issues[1].Revision);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal("/rest/api/3/search/jql", handler.Requests[0].AbsolutePath);
+        Assert.Contains("status%20%3D%20%22Ready%20for%20test%22", handler.Requests[0].Query);
+        Assert.Contains("nextPageToken=page-2", handler.Requests[1].Query);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    public async Task JiraStatusSearchHasBoundedBatchSize(int maximum)
+    {
+        using var http = new HttpClient(new SearchHandler());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            new RemoteRequirementSource(http, Options).SearchByStatusAsync("Ready", maximum, default));
+    }
+
+    [Fact]
+    public async Task JiraStatusSearchRejectsJqlControlCharacters()
+    {
+        using var http = new HttpClient(new SearchHandler());
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            new RemoteRequirementSource(http, Options).SearchByStatusAsync("Ready\" OR project = X", 1, default));
+    }
+
     [Fact]
     public async Task RetryAfterIsPreservedWithoutExposingResponseBody()
     {

@@ -12,6 +12,18 @@ export Quality__Requirements__Jira__AcceptanceField=customfield_10010
 
 Submit the existing reference shape: `{"source":"jira","id":"AUTH-1427"}`. Configure the actual custom field ID for your site. Jira's issue ID and `updated` timestamp identify the source and revision. Plain text and Atlassian Document Format text fields are supported. Unsupported rich text nodes fail instead of silently discarding evidence.
 
+## Bounded Jira status automation
+
+To consume a bounded set of Jira stories that share a status, persist their plans, and drive each one through the existing policy-controlled execution workflow, use the CLI:
+
+```sh
+docker compose --profile cli run --rm oneshot \
+  jira-status-automation --status 'Ready for test' --max-stories 25 \
+  --target http://host.docker.internal:3000 --policy local-readonly
+```
+
+The command searches Jira with an exact status JQL filter, fetches at most 100 stories, and creates a deterministic idempotency key from the status, issue key, and Jira `updated` revision. A later invocation therefore reuses the persisted job and workflow for an unchanged story, while an updated story creates a new durable cycle. Each item reports its job and workflow IDs and reaches `Completed`, a policy-controlled review checkpoint, or a terminal failure. Policies still control approval, target allowlists, actions, evidence, launch budgets, and failure classification. The CLI never prints Jira credentials or response bodies.
+
 For Coda:
 
 ```sh

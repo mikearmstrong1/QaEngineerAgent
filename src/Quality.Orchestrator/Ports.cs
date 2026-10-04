@@ -5,6 +5,13 @@ public interface IRequirementSource
 {
     Task<Requirement> NormalizeAsync(RequirementReference reference, CancellationToken ct);
 }
+// Discovery is deliberately separate from normalization: only the Jira adapter can
+// enumerate issues, while the existing JobService remains the single persistence path.
+public sealed record JiraIssueReference(string Key, string Revision);
+public interface IJiraIssueSearcher
+{
+    Task<IReadOnlyList<JiraIssueReference>> SearchByStatusAsync(string status, int maximum, CancellationToken ct);
+}
 public interface ILlmProvider
 {
     string Name { get; }
